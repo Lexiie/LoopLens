@@ -157,15 +157,9 @@ npm run build
 
 ## Demo Video
 
-The submission video is generated with Remotion from `examples/demo-video`.
+[![Watch the LoopLens demo video](assets/looplens-demo-poster.png)](assets/looplens-demo.mp4)
 
-```bash
-cd examples/demo-video
-npm install
-npm run render
-```
-
-The render writes `out/looplens-demo.mp4` and `out/poster.png`. The generated media is ignored by Git so the repo stays lightweight; upload the MP4 directly to the hackathon submission thread.
+**Watch:** [LoopLens demo video](assets/looplens-demo.mp4)
 
 ## Verification
 
@@ -175,7 +169,6 @@ Commands already run for this submission:
 cargo fmt --all -- --check
 cargo test --workspace
 npm --prefix examples/demo-app run build
-npm --prefix examples/demo-video run render
 testsprite test create --plan-from .testsprite/looplens-demo.plan.json --run --wait
 ```
 
