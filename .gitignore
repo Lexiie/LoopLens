@@ -1,5 +1,8 @@
 /target/
 /examples/demo-app/node_modules/
 /examples/demo-app/dist/
+/examples/demo-video/node_modules/
+/examples/demo-video/out/
 .DS_Store
+.code/
 PRD.md
