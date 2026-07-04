@@ -108,7 +108,7 @@ looplens export-loop
 
 ## Repository Memory
 
-This repository includes one sample verified repair in `.looplens/`, so the recall workflow works immediately after cloning.
+This repository intentionally commits one sample verified repair in `.looplens/` as demo repository memory, so the recall workflow works immediately after cloning. It is not accidental generated state.
 
 `looplens init` creates a local, repo-scoped memory store:
 
