@@ -41,13 +41,23 @@ impl Default for Config {
 pub struct RepairExperience {
     pub id: String,
     pub created_at: DateTime<Utc>,
+    pub verified_at: DateTime<Utc>,
     pub problem: String,
     pub testsprite_hypothesis: Option<String>,
     pub trajectory_summary: TrajectorySummary,
     pub patches: Vec<String>,
     pub lesson: String,
+    pub evidence: VerificationEvidence,
     pub verified: VerificationStatus,
     pub confidence: f32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VerificationEvidence {
+    pub testsprite_run_id: Option<String>,
+    pub test_id: Option<String>,
+    pub target_url: Option<String>,
+    pub dashboard_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +80,7 @@ pub struct LearnInput {
     pub successful_decision: String,
     pub patches: Vec<String>,
     pub lesson: String,
+    pub evidence: VerificationEvidence,
     pub confidence: f32,
 }
 
@@ -152,9 +163,11 @@ impl LoopLensEngine {
 
         let existing = self.load_experiences()?;
         let id = next_id(existing.len() + 1);
+        let verified_at = Utc::now();
         let experience = RepairExperience {
             id: id.clone(),
-            created_at: Utc::now(),
+            created_at: verified_at,
+            verified_at,
             problem: input.problem,
             testsprite_hypothesis: input.testsprite_hypothesis,
             trajectory_summary: TrajectorySummary {
@@ -163,6 +176,7 @@ impl LoopLensEngine {
             },
             patches: input.patches,
             lesson: input.lesson,
+            evidence: input.evidence,
             verified: VerificationStatus::Pass,
             confidence: input.confidence,
         };
@@ -277,8 +291,23 @@ impl LoopLensEngine {
             format!("# {} Trajectory", experience.id),
             String::new(),
             format!("Problem: {}", experience.problem),
+            format!("Verified: PASS at {}", experience.verified_at.to_rfc3339()),
             String::new(),
         ];
+
+        if let Some(run_id) = &experience.evidence.testsprite_run_id {
+            lines.push(format!("TestSprite run: {}", run_id));
+        }
+        if let Some(test_id) = &experience.evidence.test_id {
+            lines.push(format!("TestSprite test: {}", test_id));
+        }
+        if let Some(target_url) = &experience.evidence.target_url {
+            lines.push(format!("Target URL: {}", target_url));
+        }
+        if let Some(dashboard_url) = &experience.evidence.dashboard_url {
+            lines.push(format!("Dashboard: {}", dashboard_url));
+        }
+        lines.push(String::new());
 
         for attempt in &experience.trajectory_summary.failed_attempts {
             lines.push(format!("- FAIL: {}", attempt));
@@ -376,8 +405,33 @@ fn render_loop_doc(experiences: &[RepairExperience]) -> String {
             "## {} - {}\n\n",
             experience.id, experience.problem
         ));
+        out.push_str(&format!(
+            "Verified: PASS at {}\n\n",
+            experience.verified_at.to_rfc3339()
+        ));
         if let Some(hypothesis) = &experience.testsprite_hypothesis {
             out.push_str(&format!("TestSprite hypothesis: {}\n\n", hypothesis));
+        }
+        let evidence = &experience.evidence;
+        if evidence.testsprite_run_id.is_some()
+            || evidence.test_id.is_some()
+            || evidence.target_url.is_some()
+            || evidence.dashboard_url.is_some()
+        {
+            out.push_str("Evidence:\n");
+            if let Some(run_id) = &evidence.testsprite_run_id {
+                out.push_str(&format!("- TestSprite run: {}\n", run_id));
+            }
+            if let Some(test_id) = &evidence.test_id {
+                out.push_str(&format!("- TestSprite test: {}\n", test_id));
+            }
+            if let Some(target_url) = &evidence.target_url {
+                out.push_str(&format!("- Target URL: {}\n", target_url));
+            }
+            if let Some(dashboard_url) = &evidence.dashboard_url {
+                out.push_str(&format!("- Dashboard: {}\n", dashboard_url));
+            }
+            out.push('\n');
         }
         out.push_str("Failed attempts:\n");
         if experience.trajectory_summary.failed_attempts.is_empty() {
@@ -420,6 +474,12 @@ mod tests {
                 successful_decision: "Fix auth state rendering".into(),
                 patches: vec!["app/login/page.tsx".into()],
                 lesson: "Check auth-state rendering before modifying selectors.".into(),
+                evidence: VerificationEvidence {
+                    testsprite_run_id: Some("run_123".into()),
+                    test_id: Some("test_123".into()),
+                    target_url: Some("https://example.com".into()),
+                    dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
+                },
                 confidence: 0.94,
             })
             .unwrap();
@@ -448,8 +508,79 @@ mod tests {
             successful_decision: "Fix route".into(),
             patches: vec![],
             lesson: "Keep route and test expectation aligned".into(),
+            evidence: VerificationEvidence::default(),
             confidence: 0.8,
         });
+        assert!(result.is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn init_creates_repo_memory_layout() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+
+        assert!(root.join(".looplens/config.toml").exists());
+        assert!(root.join(".looplens/experiences").is_dir());
+        assert!(root.join(".looplens/trajectories").is_dir());
+        assert!(root.join(".looplens/LOOP.md").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persists_reloads_and_exports_evidence() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+        engine
+            .learn(LearnInput {
+                problem: "Demo flow needs verified repair context".into(),
+                testsprite_hypothesis: Some("Workflow indicator did not activate".into()),
+                failed_attempts: vec!["Adjusted visual spacing".into()],
+                successful_decision: "Wire Learn PASS to activate PASS and LOOP indicators".into(),
+                patches: vec!["examples/demo-app/src/App.jsx".into()],
+                lesson: "Keep the verification surface aligned with the actual CLI loop.".into(),
+                evidence: VerificationEvidence {
+                    testsprite_run_id: Some("7e9da0ed-e9a1-4cee-9a4d-92c272bd557e".into()),
+                    test_id: Some("1d52848a-4f5a-46af-a83f-f7cb9e9c0b29".into()),
+                    target_url: Some("https://demo-app-pink-omega.vercel.app".into()),
+                    dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
+                },
+                confidence: 0.97,
+            })
+            .unwrap();
+
+        let reloaded = LoopLensEngine::new(&root).load_experiences().unwrap();
+        assert_eq!(reloaded.len(), 1);
+        assert_eq!(
+            reloaded[0].evidence.testsprite_run_id.as_deref(),
+            Some("7e9da0ed-e9a1-4cee-9a4d-92c272bd557e")
+        );
+
+        let exported = engine.export_loop().unwrap();
+        assert!(exported.contains("Evidence:"));
+        assert!(exported.contains("TestSprite run: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e"));
+        assert!(exported.contains("Target URL: https://demo-app-pink-omega.vercel.app"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_confidence() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+        let result = engine.learn(LearnInput {
+            problem: "Confidence must be bounded".into(),
+            testsprite_hypothesis: None,
+            failed_attempts: vec![],
+            successful_decision: "Reject invalid confidence".into(),
+            patches: vec![],
+            lesson: "Confidence remains reviewable when bounded.".into(),
+            evidence: VerificationEvidence::default(),
+            confidence: 1.2,
+        });
+
         assert!(result.is_err());
         fs::remove_dir_all(root).unwrap();
     }

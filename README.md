@@ -81,12 +81,16 @@ Store a new repair experience only after the final verification is PASS:
 
 ```bash
 looplens learn \
+  --verified-pass \
   --problem "Login flow failed" \
   --testsprite-hypothesis "Missing login button" \
   --failed-attempt "Changed selector" \
   --successful-decision "Fix auth state rendering" \
   --patch app/login/page.tsx \
   --lesson "Check auth-state rendering before modifying selectors." \
+  --testsprite-run-id "7e9da0ed-e9a1-4cee-9a4d-92c272bd557e" \
+  --test-id "1d52848a-4f5a-46af-a83f-f7cb9e9c0b29" \
+  --target-url "https://demo-app-pink-omega.vercel.app" \
   --confidence 0.94
 ```
 
@@ -114,6 +118,7 @@ Experience files are intentionally boring: readable YAML, stable Markdown, no cl
 
 ```yaml
 id: EXP-001
+verified_at: "2026-07-04T17:25:45Z"
 problem: Login flow failed
 testsprite_hypothesis: Missing login button
 trajectory_summary:
@@ -124,6 +129,10 @@ trajectory_summary:
 patches:
   - app/login/page.tsx
 lesson: Check auth-state rendering before modifying selectors.
+evidence:
+  testsprite_run_id: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e
+  test_id: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  target_url: https://demo-app-pink-omega.vercel.app
 verified: PASS
 confidence: 0.94
 ```
@@ -138,6 +147,8 @@ examples/demo-app  Public hackathon demo surface
 ```
 
 The core engine owns storage, retrieval, ranking, and LOOP export. The CLI is deliberately thin so the same engine can later power an MCP adapter.
+
+The web demo is an interactive verification surface for judges and TestSprite. It is not the product UI; LoopLens is the CLI and repository memory engine.
 
 ## Demo App
 

@@ -1,6 +1,8 @@
 use anyhow::Result;
-use clap::{Parser, Subcommand};
-use looplens_core::{read_failure_bundle, LearnInput, LoopLensEngine, RecallInput};
+use clap::{ArgAction, Parser, Subcommand};
+use looplens_core::{
+    read_failure_bundle, LearnInput, LoopLensEngine, RecallInput, VerificationEvidence,
+};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -31,6 +33,9 @@ enum Command {
     },
     /// Store a verified PASS repair experience.
     Learn {
+        #[arg(long = "verified-pass", action = ArgAction::SetTrue, required = true)]
+        verified_pass: bool,
+
         #[arg(long)]
         problem: String,
 
@@ -48,6 +53,18 @@ enum Command {
 
         #[arg(long)]
         lesson: String,
+
+        #[arg(long = "testsprite-run-id")]
+        testsprite_run_id: Option<String>,
+
+        #[arg(long = "test-id")]
+        test_id: Option<String>,
+
+        #[arg(long = "target-url")]
+        target_url: Option<String>,
+
+        #[arg(long = "dashboard-url")]
+        dashboard_url: Option<String>,
 
         #[arg(long, default_value_t = 0.85)]
         confidence: f32,
@@ -82,14 +99,22 @@ fn main() -> Result<()> {
             print_recall(result);
         }
         Command::Learn {
+            verified_pass,
             problem,
             testsprite_hypothesis,
             failed_attempts,
             successful_decision,
             patches,
             lesson,
+            testsprite_run_id,
+            test_id,
+            target_url,
+            dashboard_url,
             confidence,
         } => {
+            if !verified_pass {
+                anyhow::bail!("learn requires --verified-pass after a successful TestSprite run");
+            }
             let experience = engine.learn(LearnInput {
                 problem,
                 testsprite_hypothesis,
@@ -97,6 +122,12 @@ fn main() -> Result<()> {
                 successful_decision,
                 patches,
                 lesson,
+                evidence: VerificationEvidence {
+                    testsprite_run_id,
+                    test_id,
+                    target_url,
+                    dashboard_url,
+                },
                 confidence,
             })?;
             println!("Stored verified repair experience {}", experience.id);
