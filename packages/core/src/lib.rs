@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RepairExperience {
     pub id: String,
     pub created_at: DateTime<Utc>,
@@ -50,6 +50,45 @@ pub struct RepairExperience {
     pub evidence: VerificationEvidence,
     pub verified: VerificationStatus,
     pub confidence: f32,
+}
+
+impl<'de> Deserialize<'de> for RepairExperience {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RepairExperienceFields {
+            id: String,
+            created_at: DateTime<Utc>,
+            #[serde(default)]
+            verified_at: Option<DateTime<Utc>>,
+            problem: String,
+            testsprite_hypothesis: Option<String>,
+            trajectory_summary: TrajectorySummary,
+            patches: Vec<String>,
+            lesson: String,
+            #[serde(default)]
+            evidence: VerificationEvidence,
+            verified: VerificationStatus,
+            confidence: f32,
+        }
+
+        let fields = RepairExperienceFields::deserialize(deserializer)?;
+        Ok(Self {
+            id: fields.id,
+            created_at: fields.created_at,
+            verified_at: fields.verified_at.unwrap_or(fields.created_at),
+            problem: fields.problem,
+            testsprite_hypothesis: fields.testsprite_hypothesis,
+            trajectory_summary: fields.trajectory_summary,
+            patches: fields.patches,
+            lesson: fields.lesson,
+            evidence: fields.evidence,
+            verified: fields.verified,
+            confidence: fields.confidence,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -562,6 +601,52 @@ mod tests {
         assert!(exported.contains("Evidence:"));
         assert!(exported.contains("TestSprite run: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e"));
         assert!(exported.contains("Target URL: https://demo-app-pink-omega.vercel.app"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn loads_legacy_experience_without_verification_evidence() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+        let legacy_yaml = r#"id: EXP-001
+created_at: "2026-01-02T03:04:05Z"
+problem: Legacy repair record
+testsprite_hypothesis: null
+trajectory_summary:
+  failed_attempts:
+    - Tried the old route first
+  successful_decision: Keep loading old experience files
+patches:
+  - packages/core/src/lib.rs
+lesson: Default newly-added verification metadata when absent.
+verified: PASS
+confidence: 0.82
+"#;
+        fs::write(root.join(".looplens/experiences/exp-001.yaml"), legacy_yaml).unwrap();
+
+        let loaded = engine.load_experiences().unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].verified_at, loaded[0].created_at);
+        assert!(loaded[0].evidence.testsprite_run_id.is_none());
+
+        let exported = engine.export_loop().unwrap();
+        assert!(exported.contains("Legacy repair record"));
+        assert!(!exported.contains("Evidence:"));
+
+        let learned = engine
+            .learn(LearnInput {
+                problem: "New record after upgrade".into(),
+                testsprite_hypothesis: None,
+                failed_attempts: vec![],
+                successful_decision: "Continue after reading legacy records".into(),
+                patches: vec![],
+                lesson: "Learning must not be blocked by older YAML.".into(),
+                evidence: VerificationEvidence::default(),
+                confidence: 0.9,
+            })
+            .unwrap();
+        assert_eq!(learned.id, "EXP-002");
         fs::remove_dir_all(root).unwrap();
     }
 

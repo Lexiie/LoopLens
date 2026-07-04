@@ -39,11 +39,12 @@ Agent-written repair loop notes for the LoopLens hackathon submission.
 - Patch summary:
   - Added required `looplens learn --verified-pass` intent flag.
   - Added optional TestSprite evidence fields: run ID, test ID, target URL, dashboard URL, and verified timestamp.
+  - Preserved compatibility with older experience YAML by defaulting missing evidence fields during load.
   - Updated `export-loop` output to include verification evidence.
-  - Expanded tests for init layout, persistence reload, export evidence, and invalid confidence.
+  - Expanded tests for init layout, persistence reload, export evidence, legacy YAML loading, and invalid confidence.
 - Verification:
   - `cargo fmt --all -- --check` passed.
-  - `cargo test --workspace` passed with 5 tests.
+  - `cargo test --workspace` passed with 6 tests.
   - CLI smoke test passed for `init -> learn --verified-pass -> recall -> export-loop` with TestSprite evidence fields.
   - `npm --prefix examples/demo-app run build` passed.
 - Result: LoopLens now stores and exports verified repair evidence, not only lessons.
