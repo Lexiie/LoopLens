@@ -157,9 +157,9 @@ npm run build
 
 ## Demo Video
 
-[![Watch the LoopLens demo video](assets/looplens-demo-poster.png)](https://raw.githubusercontent.com/Lexiie/LoopLens/main/assets/looplens-demo.mp4)
+[![Watch the LoopLens demo video](assets/looplens-demo-poster.png)](https://cdn.jsdelivr.net/gh/Lexiie/LoopLens@main/assets/looplens-demo.mp4)
 
-**Watch:** [LoopLens demo video](https://raw.githubusercontent.com/Lexiie/LoopLens/main/assets/looplens-demo.mp4)
+**Watch:** [LoopLens demo video](https://cdn.jsdelivr.net/gh/Lexiie/LoopLens@main/assets/looplens-demo.mp4)
 
 ## Verification
 
