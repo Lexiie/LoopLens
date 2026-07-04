@@ -1,0 +1,7 @@
+version = "0.1"
+project = "LoopLens sample repository memory"
+
+[storage]
+experiences_dir = "experiences"
+trajectories_dir = "trajectories"
+

@@ -1,0 +1,22 @@
+id: EXP-001
+created_at: "2026-07-04T17:25:45Z"
+verified_at: "2026-07-04T17:25:45Z"
+problem: Login button missing after auth redirect in the public demo workflow
+testsprite_hypothesis: TestSprite could not find the expected CTA during the login repair workflow.
+trajectory_summary:
+  failed_attempts:
+    - Treated the failure as a selector-only issue.
+    - Considered changing demo copy before checking workflow state.
+  successful_decision: Fix auth-state rendering before editing selectors.
+patches:
+  - examples/demo-app/src/App.jsx
+  - examples/demo-app/src/styles.css
+lesson: When UI is missing in a browser verification run, inspect state gating and rendering conditions before changing selectors.
+evidence:
+  testsprite_run_id: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e
+  test_id: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  target_url: https://demo-app-pink-omega.vercel.app
+  dashboard_url: https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+verified: PASS
+confidence: 0.94
+

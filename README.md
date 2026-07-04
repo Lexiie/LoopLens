@@ -77,6 +77,12 @@ Recall similar verified repairs from a TestSprite failure bundle:
 looplens recall --failure-bundle .testsprite/failure-bundle.md
 ```
 
+Try the included sample repository memory:
+
+```bash
+cargo run -q -p looplens -- recall --problem "auth login button missing"
+```
+
 Store a new repair experience only after the final verification is PASS:
 
 ```bash
@@ -101,6 +107,8 @@ looplens export-loop
 ```
 
 ## Repository Memory
+
+This repository includes one sample verified repair in `.looplens/`, so the recall workflow works immediately after cloning.
 
 `looplens init` creates a local, repo-scoped memory store:
 
