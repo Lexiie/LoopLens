@@ -1,0 +1,37 @@
+{
+  "projectId": "82a9909d-e588-4719-a9ba-53b957d12eb1",
+  "type": "frontend",
+  "name": "LoopLens demo recalls repair experience",
+  "description": "Verify the public LoopLens demo presents the repair memory workflow for the hackathon submission.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open https://demo-app-pink-omega.vercel.app."
+    },
+    {
+      "type": "assertion",
+      "description": "The page shows the product name LoopLens and the text Repair Experience Layer."
+    },
+    {
+      "type": "assertion",
+      "description": "The page shows a TestSprite failure bundle input area with login failure text."
+    },
+    {
+      "type": "action",
+      "description": "Click the first similar verified repair result, EXP-001, if it is not already selected."
+    },
+    {
+      "type": "assertion",
+      "description": "The repair context shows the decision Fix auth state rendering before editing selectors."
+    },
+    {
+      "type": "action",
+      "description": "Click the Learn PASS button."
+    },
+    {
+      "type": "assertion",
+      "description": "The PASS and LOOP.md workflow indicators are active after clicking Learn PASS."
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+/target/
+/examples/demo-app/node_modules/
+/examples/demo-app/dist/
+.DS_Store
+PRD.md

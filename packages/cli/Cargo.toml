@@ -1,0 +1,15 @@
+[package]
+name = "looplens"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "looplens"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+looplens-core = { path = "../core" }
+
