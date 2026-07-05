@@ -4,7 +4,7 @@ Agent-written repair loop notes for the LoopLens hackathon submission.
 
 ## Iteration 1 - Build the product core
 
-- Goal: implement the PRD as a CLI-native repair experience layer, not a dashboard or TestSprite replacement.
+- Goal: implement LoopLens as a CLI-native repair experience layer, not a dashboard or TestSprite replacement.
 - Commands run:
   - `cargo fmt --all -- --check`
   - `cargo test --workspace`
