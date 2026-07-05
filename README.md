@@ -110,6 +110,8 @@ looplens export-loop
 
 This repository intentionally commits one sample verified repair in `.looplens/` as demo repository memory, so the recall workflow works immediately after cloning. It is not accidental generated state.
 
+There are two loop artifacts in this submission: root `LOOP.md` is the hackathon-facing agent memory narrative, while `.looplens/LOOP.md` is the generated memory file that LoopLens would carry inside any repository using the CLI.
+
 `looplens init` creates a local, repo-scoped memory store:
 
 ```text
