@@ -1,0 +1,41 @@
+name: TestSprite Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Public URL to verify
+        required: true
+        default: https://demo-app-pink-omega.vercel.app
+
+jobs:
+  testsprite:
+    name: Run TestSprite demo verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install TestSprite CLI
+        run: npm install -g @testsprite/testsprite-cli
+
+      - name: Configure TestSprite credentials
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+        run: testsprite setup --from-env --no-agent --yes
+
+      - name: Run TestSprite plan
+        run: |
+          testsprite --output json test create \
+            --plan-from .testsprite/looplens-demo.plan.json \
+            --run \
+            --wait \
+            --timeout 600 \
+            --target-url "${{ inputs.target_url }}"
+

@@ -29,6 +29,8 @@ TestSprite produces evidence that a behavior failed or passed. LoopLens consumes
 
 ## Current Verified Memory
 
+This repository carries three sample experiences in `.looplens/experiences/` so a fresh clone can demonstrate recall immediately.
+
 ### EXP-001 - Missing UI after auth redirect
 
 Problem:
@@ -87,6 +89,10 @@ Candidate strategy: inspect app state gating before modifying selectors.
 ```
 
 This is the core product behavior: the agent gets repository-specific repair experience before it spends tokens rediscovering the same lesson.
+
+Additional sample memories cover:
+- `EXP-002`: preserving Git and TestSprite evidence with the repair lesson.
+- `EXP-003`: fixing patch/file-only recall eligibility so file paths are first-class recall signals.
 
 ## Learning Example
 
@@ -199,3 +205,14 @@ TestSprite rerun `9eb5fd97-b3f0-4da6-9f30-52deb51c5247` passed against `https://
 
 Lesson:
 Recall is more useful to agents when the engine explains why an experience matched, not only that it matched.
+
+### Iteration 5 - Submission hardening
+
+Patch summary:
+- Added GitHub Actions CI for Rust formatting, Rust tests, demo app install, and demo app build.
+- Added a manual TestSprite verification workflow powered by `TESTSPRITE_API_KEY`.
+- Added `EXP-002` and `EXP-003` sample verified repair memories.
+- Added Known Limitations so reviewers can distinguish MVP scope from roadmap.
+
+Lesson:
+For a hackathon developer tool, submission evidence matters as much as raw feature count: CI, sample memory, and honest limitations make the project easier to judge.

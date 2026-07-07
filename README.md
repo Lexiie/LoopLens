@@ -4,6 +4,7 @@
 ![Rust](https://img.shields.io/badge/Rust-CLI-b7410e?style=for-the-badge&logo=rust&logoColor=white)
 ![Local First](https://img.shields.io/badge/Local--first-Repository%20Memory-2d6a4f?style=for-the-badge)
 ![Verified](https://img.shields.io/badge/TestSprite-PASS-19C379?style=for-the-badge)
+[![LoopLens CI](https://github.com/Lexiie/LoopLens/actions/workflows/ci.yml/badge.svg)](https://github.com/Lexiie/LoopLens/actions/workflows/ci.yml)
 
 **Verified Repair Experience Engine for AI Coding Agents.**
 
@@ -116,7 +117,7 @@ looplens export-loop
 
 ## Repository Memory
 
-This repository intentionally commits one sample verified repair in `.looplens/` as demo repository memory, so the recall workflow works immediately after cloning. It is not accidental generated state.
+This repository intentionally commits three sample verified repairs in `.looplens/` as demo repository memory, so the recall workflow works immediately after cloning. It is not accidental generated state.
 
 There are two loop artifacts in this submission: root `LOOP.md` is the hackathon-facing agent memory narrative, while `.looplens/LOOP.md` is the generated memory file that LoopLens would carry inside any repository using the CLI.
 
@@ -208,6 +209,25 @@ testsprite test create --plan-from .testsprite/looplens-demo.plan.json --run --w
 
 The TestSprite plan lives at `.testsprite/looplens-demo.plan.json`, and the captured run output lives at `.testsprite/looplens-demo-run.json`.
 The latest rerun result lives at `.testsprite/looplens-demo-rerun-final-wait-2.json`.
+
+## CI/CD
+
+GitHub Actions verifies every push and pull request with:
+
+- `cargo fmt --all -- --check`
+- `cargo test --workspace`
+- `npm --prefix examples/demo-app ci`
+- `npm --prefix examples/demo-app run build`
+
+There is also a manual `TestSprite Verification` workflow that can run the public demo test with `TESTSPRITE_API_KEY` configured as a repository secret.
+
+## Known Limitations
+
+- Deduplication is not implemented yet; repeated `learn` calls can create similar experiences.
+- Trajectory storage is currently a summary, not a full repair graph.
+- Retrieval is local and explainable, but does not use embeddings yet.
+- The MCP adapter is roadmap, not part of this MVP.
+- Memory compaction/garbage collection is planned for long-running repositories.
 
 ## Roadmap
 

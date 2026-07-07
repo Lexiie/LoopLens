@@ -1,0 +1,32 @@
+id: EXP-002
+created_at: "2026-07-07T17:42:31Z"
+verified_at: "2026-07-07T17:42:31Z"
+problem: Repair memory lacked reproducible verification evidence after a successful TestSprite rerun
+testsprite_hypothesis: TestSprite rerun passed, but the repository memory did not yet carry Git and agent metadata for the verified repair.
+trajectory_summary:
+  failed_attempts:
+    - Stored only TestSprite run and target URL evidence.
+    - Left commit, branch, agent, and changed files outside the repair experience.
+  successful_decision: Add Git repair metadata to verification evidence and export it into LOOP.md.
+patches:
+  - packages/core/src/lib.rs
+  - packages/cli/src/main.rs
+  - README.md
+  - LOOP.md
+lesson: Verified repair memory is more reusable when TestSprite evidence is paired with the Git commit, branch, agent, and files changed.
+evidence:
+  testsprite_run_id: 9eb5fd97-b3f0-4da6-9f30-52deb51c5247
+  test_id: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  target_url: https://demo-app-pink-omega.vercel.app
+  dashboard_url: https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  commit_sha: 1f83bd06c97df812bb97465e162b71e58e66fd92
+  branch: main
+  agent: code
+  files_changed:
+    - packages/core/src/lib.rs
+    - packages/cli/src/main.rs
+    - README.md
+    - LOOP.md
+verified: PASS
+confidence: 0.96
+

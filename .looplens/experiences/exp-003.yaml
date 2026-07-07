@@ -1,0 +1,26 @@
+id: EXP-003
+created_at: "2026-07-08T00:00:00Z"
+verified_at: "2026-07-08T00:00:00Z"
+problem: File-path-only recall queries did not return matching repair experiences
+testsprite_hypothesis: Existing tests passed, but auto-review found that patch/file recall metadata was not eligible when it was the only matching signal.
+trajectory_summary:
+  failed_attempts:
+    - Added patch/file score breakdown but kept lexical-only eligibility.
+    - Verified recall with text queries but not file-only queries.
+  successful_decision: Allow recall matches when lexical, hypothesis, or patch/file overlap is present.
+patches:
+  - packages/core/src/lib.rs
+lesson: Explainable recall must treat file overlap as a first-class matching signal, not just as a score decoration.
+evidence:
+  testsprite_run_id: 9eb5fd97-b3f0-4da6-9f30-52deb51c5247
+  test_id: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  target_url: https://demo-app-pink-omega.vercel.app
+  dashboard_url: https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+  commit_sha: a46ce34c4e6f1e0a0e3cfafed5ad4bb7f8b5c987
+  branch: main
+  agent: code
+  files_changed:
+    - packages/core/src/lib.rs
+verified: PASS
+confidence: 0.91
+
