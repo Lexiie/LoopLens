@@ -13,6 +13,12 @@ Evidence:
 - TestSprite test: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
 - Target URL: https://demo-app-pink-omega.vercel.app
 - Dashboard: https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+- Commit: 7545ad24c4684fb408122e770846a445edd8f8a8
+- Branch: main
+- Agent: code
+- Files changed:
+  - examples/demo-app/src/App.jsx
+  - examples/demo-app/src/styles.css
 
 Failed attempts:
 - Treated the failure as a selector-only issue.
@@ -23,4 +29,3 @@ Successful decision: Fix auth-state rendering before editing selectors.
 Lesson: When UI is missing in a browser verification run, inspect state gating and rendering conditions before changing selectors.
 
 Confidence: 0.94
-

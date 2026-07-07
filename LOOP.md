@@ -1,6 +1,6 @@
 # LOOP.md
 
-This is the hackathon-facing LoopLens memory artifact.
+This is the hackathon-facing LoopLens memory artifact for a Verified Repair Experience Engine.
 
 It shows the kind of repair context an AI coding agent should get before making the next patch. The committed `.looplens/LOOP.md` is the generated repository memory that LoopLens would carry inside any project using the CLI.
 
@@ -17,6 +17,15 @@ Before patching a new failure in this repository, an agent should:
 7. Regenerate `.looplens/LOOP.md` with `looplens export-loop`.
 
 LoopLens should not store failed guesses as durable knowledge. It stores verified repair decisions.
+
+## Why This Is Not TestSprite
+
+TestSprite produces evidence that a behavior failed or passed. LoopLens consumes that evidence after a PASS and turns the successful repair into repository-specific agent knowledge.
+
+- TestSprite answers: what failed, what passed, and what evidence proves it.
+- LoopLens answers: how did this repository successfully repair a similar problem before?
+- TestSprite owns verification.
+- LoopLens owns reusable repair experience.
 
 ## Current Verified Memory
 
@@ -44,6 +53,10 @@ Evidence:
 - TestSprite test: `1d52848a-4f5a-46af-a83f-f7cb9e9c0b29`
 - TestSprite run: `7e9da0ed-e9a1-4cee-9a4d-92c272bd557e`
 - Target URL: `https://demo-app-pink-omega.vercel.app`
+- Commit: `7545ad24c4684fb408122e770846a445edd8f8a8`
+- Branch: `main`
+- Agent: `code`
+- Files changed: `examples/demo-app/src/App.jsx`, `examples/demo-app/src/styles.css`
 - Dashboard: `https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29`
 - Confidence: `0.94`
 
@@ -64,6 +77,10 @@ Expected repair context:
 
 ```text
 Similar repair: EXP-001
+Why matched:
+- lexical: auth, button, login, missing
+- hypothesis overlap: login
+- score breakdown: lexical, patch/file, hypothesis, confidence, recency
 Previous decision: Fix auth-state rendering before editing selectors.
 Lesson learned: When UI is missing in a browser verification run, inspect state gating and rendering conditions before changing selectors.
 Candidate strategy: inspect app state gating before modifying selectors.
@@ -88,6 +105,8 @@ looplens learn \
   --test-id "1d52848a-4f5a-46af-a83f-f7cb9e9c0b29" \
   --target-url "https://demo-app-pink-omega.vercel.app" \
   --dashboard-url "https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29" \
+  --agent "code" \
+  --file-changed "app/login/page.tsx" \
   --confidence 0.94
 ```
 
@@ -148,6 +167,8 @@ Commands:
 Patch summary:
 - Added required `looplens learn --verified-pass` intent flag.
 - Added optional TestSprite evidence fields: run ID, test ID, target URL, dashboard URL, and verified timestamp.
+- Added Git repair metadata: commit SHA, branch, agent, and changed files.
+- Added explainable recall scoring across lexical, hypothesis, patch/file, confidence, and recency signals.
 - Preserved compatibility with older experience YAML by defaulting missing evidence fields during load.
 - Updated `export-loop` output to include verification evidence.
 - Expanded tests for init layout, persistence reload, export evidence, legacy YAML loading, and invalid confidence.
@@ -158,3 +179,23 @@ LoopLens now stores and exports verified repair evidence, not only lessons.
 Lesson:
 Repair memory is more credible when every stored lesson carries verification evidence.
 
+### Iteration 4 - Explainable recall and final rerun
+
+Commands:
+- `cargo fmt --all -- --check`
+- `cargo test --workspace`
+- CLI smoke test for explainable `recall`
+- `testsprite test rerun 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29 --wait --timeout 240`
+- `testsprite test wait 9eb5fd97-b3f0-4da6-9f30-52deb51c5247 --timeout 120`
+
+Patch summary:
+- Reframed LoopLens as a Verified Repair Experience Engine.
+- Added explainable recall output with lexical, hypothesis, patch/file, confidence, and recency scoring signals.
+- Added Git repair metadata to evidence: commit SHA, branch, agent, and changed files.
+- Updated sample `.looplens/` memory so fresh clones can recall a verified repair immediately.
+
+Result:
+TestSprite rerun `9eb5fd97-b3f0-4da6-9f30-52deb51c5247` passed against `https://demo-app-pink-omega.vercel.app` with 28/28 steps passed.
+
+Lesson:
+Recall is more useful to agents when the engine explains why an experience matched, not only that it matched.

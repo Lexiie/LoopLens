@@ -93,10 +93,22 @@ impl<'de> Deserialize<'de> for RepairExperience {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VerificationEvidence {
+    #[serde(default)]
     pub testsprite_run_id: Option<String>,
+    #[serde(default)]
     pub test_id: Option<String>,
+    #[serde(default)]
     pub target_url: Option<String>,
+    #[serde(default)]
     pub dashboard_url: Option<String>,
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
+    #[serde(default)]
+    pub files_changed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +146,18 @@ pub struct RecallMatch {
     pub experience: RepairExperience,
     pub score: f32,
     pub matched_terms: Vec<String>,
+    pub matched_hypothesis_terms: Vec<String>,
+    pub matched_patch_terms: Vec<String>,
+    pub score_breakdown: RecallScoreBreakdown,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecallScoreBreakdown {
+    pub lexical: f32,
+    pub hypothesis: f32,
+    pub patch: f32,
+    pub confidence: f32,
+    pub recency: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -242,25 +266,56 @@ impl LoopLensEngine {
             .filter_map(|experience| {
                 let doc = experience_text(&experience);
                 let doc_tokens = tokenize(&doc);
-                let matched_terms: Vec<String> =
-                    query_tokens.intersection(&doc_tokens).cloned().collect();
+                let matched_terms = overlap_terms(&query_tokens, &doc_tokens);
 
                 if matched_terms.is_empty() {
                     return None;
                 }
 
-                let lexical = matched_terms.iter().fold(0.0, |score, term| {
+                let lexical_weighted = matched_terms.iter().fold(0.0, |score, term| {
                     let df = *document_frequency.get(term).unwrap_or(&1) as f32;
                     let idf = ((total_docs + 1.0) / (df + 1.0)).ln() + 1.0;
                     score + idf
                 });
-                let coverage = matched_terms.len() as f32 / query_tokens.len().max(1) as f32;
-                let score = lexical * 0.65 + coverage * 0.25 + experience.confidence * 0.10;
+
+                let lexical = normalize_score(lexical_weighted, query_tokens.len().max(1) as f32);
+                let hypothesis_tokens = tokenize(
+                    experience
+                        .testsprite_hypothesis
+                        .as_deref()
+                        .unwrap_or_default(),
+                );
+                let patch_tokens = tokenize(&format!(
+                    "{} {}",
+                    experience.patches.join(" "),
+                    experience.evidence.files_changed.join(" ")
+                ));
+                let matched_hypothesis_terms = overlap_terms(&query_tokens, &hypothesis_tokens);
+                let matched_patch_terms = overlap_terms(&query_tokens, &patch_tokens);
+                let hypothesis = ratio(matched_hypothesis_terms.len(), query_tokens.len());
+                let patch = ratio(matched_patch_terms.len(), query_tokens.len());
+                let confidence = experience.confidence.clamp(0.0, 1.0);
+                let recency = recency_score(experience.verified_at);
+                let score_breakdown = RecallScoreBreakdown {
+                    lexical,
+                    hypothesis,
+                    patch,
+                    confidence,
+                    recency,
+                };
+                let score = lexical * 0.35
+                    + patch * 0.25
+                    + hypothesis * 0.20
+                    + confidence * 0.10
+                    + recency * 0.10;
 
                 Some(RecallMatch {
                     experience,
                     score,
                     matched_terms,
+                    matched_hypothesis_terms,
+                    matched_patch_terms,
+                    score_breakdown,
                 })
             })
             .collect();
@@ -346,6 +401,21 @@ impl LoopLensEngine {
         if let Some(dashboard_url) = &experience.evidence.dashboard_url {
             lines.push(format!("Dashboard: {}", dashboard_url));
         }
+        if let Some(commit_sha) = &experience.evidence.commit_sha {
+            lines.push(format!("Commit: {}", commit_sha));
+        }
+        if let Some(branch) = &experience.evidence.branch {
+            lines.push(format!("Branch: {}", branch));
+        }
+        if let Some(agent) = &experience.evidence.agent {
+            lines.push(format!("Agent: {}", agent));
+        }
+        if !experience.evidence.files_changed.is_empty() {
+            lines.push(format!(
+                "Files changed: {}",
+                experience.evidence.files_changed.join(", ")
+            ));
+        }
         lines.push(String::new());
 
         for attempt in &experience.trajectory_summary.failed_attempts {
@@ -403,6 +473,31 @@ fn tokenize(text: &str) -> HashSet<String> {
         .collect()
 }
 
+fn overlap_terms(left: &HashSet<String>, right: &HashSet<String>) -> Vec<String> {
+    let mut terms: Vec<String> = left.intersection(right).cloned().collect();
+    terms.sort();
+    terms
+}
+
+fn ratio(numerator: usize, denominator: usize) -> f32 {
+    if denominator == 0 {
+        return 0.0;
+    }
+    numerator as f32 / denominator as f32
+}
+
+fn normalize_score(score: f32, denominator: f32) -> f32 {
+    (score / denominator.max(1.0)).clamp(0.0, 1.0)
+}
+
+fn recency_score(verified_at: DateTime<Utc>) -> f32 {
+    let age_days = Utc::now()
+        .signed_duration_since(verified_at)
+        .num_days()
+        .max(0) as f32;
+    (1.0 / (1.0 + age_days / 90.0)).clamp(0.0, 1.0)
+}
+
 fn document_frequency(experiences: &[RepairExperience]) -> HashMap<String, usize> {
     let mut frequency = HashMap::new();
     for experience in experiences {
@@ -456,6 +551,10 @@ fn render_loop_doc(experiences: &[RepairExperience]) -> String {
             || evidence.test_id.is_some()
             || evidence.target_url.is_some()
             || evidence.dashboard_url.is_some()
+            || evidence.commit_sha.is_some()
+            || evidence.branch.is_some()
+            || evidence.agent.is_some()
+            || !evidence.files_changed.is_empty()
         {
             out.push_str("Evidence:\n");
             if let Some(run_id) = &evidence.testsprite_run_id {
@@ -469,6 +568,21 @@ fn render_loop_doc(experiences: &[RepairExperience]) -> String {
             }
             if let Some(dashboard_url) = &evidence.dashboard_url {
                 out.push_str(&format!("- Dashboard: {}\n", dashboard_url));
+            }
+            if let Some(commit_sha) = &evidence.commit_sha {
+                out.push_str(&format!("- Commit: {}\n", commit_sha));
+            }
+            if let Some(branch) = &evidence.branch {
+                out.push_str(&format!("- Branch: {}\n", branch));
+            }
+            if let Some(agent) = &evidence.agent {
+                out.push_str(&format!("- Agent: {}\n", agent));
+            }
+            if !evidence.files_changed.is_empty() {
+                out.push_str("- Files changed:\n");
+                for file in &evidence.files_changed {
+                    out.push_str(&format!("  - {}\n", file));
+                }
             }
             out.push('\n');
         }
@@ -518,6 +632,8 @@ mod tests {
                     test_id: Some("test_123".into()),
                     target_url: Some("https://example.com".into()),
                     dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
+                    files_changed: vec!["app/login/page.tsx".into()],
+                    ..VerificationEvidence::default()
                 },
                 confidence: 0.94,
             })
@@ -532,6 +648,13 @@ mod tests {
 
         assert_eq!(recall.matches.len(), 1);
         assert_eq!(recall.matches[0].experience.id, "EXP-001");
+        assert!(recall.matches[0]
+            .matched_hypothesis_terms
+            .contains(&"login".to_string()));
+        assert!(recall.matches[0]
+            .matched_patch_terms
+            .contains(&"login".to_string()));
+        assert!(recall.matches[0].score_breakdown.confidence > 0.9);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -585,6 +708,11 @@ mod tests {
                     test_id: Some("1d52848a-4f5a-46af-a83f-f7cb9e9c0b29".into()),
                     target_url: Some("https://demo-app-pink-omega.vercel.app".into()),
                     dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
+                    commit_sha: Some("abc123".into()),
+                    branch: Some("main".into()),
+                    agent: Some("code".into()),
+                    files_changed: vec!["examples/demo-app/src/App.jsx".into()],
+                    ..VerificationEvidence::default()
                 },
                 confidence: 0.97,
             })
@@ -601,6 +729,10 @@ mod tests {
         assert!(exported.contains("Evidence:"));
         assert!(exported.contains("TestSprite run: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e"));
         assert!(exported.contains("Target URL: https://demo-app-pink-omega.vercel.app"));
+        assert!(exported.contains("Commit: abc123"));
+        assert!(exported.contains("Branch: main"));
+        assert!(exported.contains("Agent: code"));
+        assert!(exported.contains("examples/demo-app/src/App.jsx"));
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -4,6 +4,7 @@ use looplens_core::{
     read_failure_bundle, LearnInput, LoopLensEngine, RecallInput, VerificationEvidence,
 };
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "looplens")]
@@ -66,6 +67,18 @@ enum Command {
         #[arg(long = "dashboard-url")]
         dashboard_url: Option<String>,
 
+        #[arg(long = "commit-sha")]
+        commit_sha: Option<String>,
+
+        #[arg(long)]
+        branch: Option<String>,
+
+        #[arg(long)]
+        agent: Option<String>,
+
+        #[arg(long = "file-changed")]
+        files_changed: Vec<String>,
+
         #[arg(long, default_value_t = 0.85)]
         confidence: f32,
     },
@@ -75,7 +88,8 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let engine = LoopLensEngine::new(cli.root);
+    let root = cli.root;
+    let engine = LoopLensEngine::new(root.clone());
 
     match cli.command {
         Command::Init => {
@@ -110,11 +124,23 @@ fn main() -> Result<()> {
             test_id,
             target_url,
             dashboard_url,
+            commit_sha,
+            branch,
+            agent,
+            files_changed,
             confidence,
         } => {
             if !verified_pass {
                 anyhow::bail!("learn requires --verified-pass after a successful TestSprite run");
             }
+            let inferred_commit = commit_sha.or_else(|| git_value(&root, &["rev-parse", "HEAD"]));
+            let inferred_branch =
+                branch.or_else(|| git_value(&root, &["branch", "--show-current"]));
+            let changed_files = if files_changed.is_empty() {
+                patches.clone()
+            } else {
+                files_changed
+            };
             let experience = engine.learn(LearnInput {
                 problem,
                 testsprite_hypothesis,
@@ -127,6 +153,10 @@ fn main() -> Result<()> {
                     test_id,
                     target_url,
                     dashboard_url,
+                    commit_sha: inferred_commit,
+                    branch: inferred_branch,
+                    agent,
+                    files_changed: changed_files,
                 },
                 confidence,
             })?;
@@ -139,6 +169,20 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn git_value(root: &PathBuf, args: &[&str]) -> Option<String> {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 fn print_recall(result: looplens_core::RecallResult) {
@@ -162,6 +206,26 @@ fn print_recall(result: looplens_core::RecallResult) {
         if !item.matched_terms.is_empty() {
             println!("  matched terms: {}", item.matched_terms.join(", "));
         }
+        if !item.matched_hypothesis_terms.is_empty() {
+            println!(
+                "  hypothesis overlap: {}",
+                item.matched_hypothesis_terms.join(", ")
+            );
+        }
+        if !item.matched_patch_terms.is_empty() {
+            println!(
+                "  patch/file overlap: {}",
+                item.matched_patch_terms.join(", ")
+            );
+        }
+        println!(
+            "  score breakdown: lexical {:.2}, patch {:.2}, hypothesis {:.2}, confidence {:.2}, recency {:.2}",
+            item.score_breakdown.lexical,
+            item.score_breakdown.patch,
+            item.score_breakdown.hypothesis,
+            item.score_breakdown.confidence,
+            item.score_breakdown.recency
+        );
         println!(
             "  previous decision: {}",
             experience.trajectory_summary.successful_decision
