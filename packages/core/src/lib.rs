@@ -267,18 +267,6 @@ impl LoopLensEngine {
                 let doc = experience_text(&experience);
                 let doc_tokens = tokenize(&doc);
                 let matched_terms = overlap_terms(&query_tokens, &doc_tokens);
-
-                if matched_terms.is_empty() {
-                    return None;
-                }
-
-                let lexical_weighted = matched_terms.iter().fold(0.0, |score, term| {
-                    let df = *document_frequency.get(term).unwrap_or(&1) as f32;
-                    let idf = ((total_docs + 1.0) / (df + 1.0)).ln() + 1.0;
-                    score + idf
-                });
-
-                let lexical = normalize_score(lexical_weighted, query_tokens.len().max(1) as f32);
                 let hypothesis_tokens = tokenize(
                     experience
                         .testsprite_hypothesis
@@ -292,6 +280,21 @@ impl LoopLensEngine {
                 ));
                 let matched_hypothesis_terms = overlap_terms(&query_tokens, &hypothesis_tokens);
                 let matched_patch_terms = overlap_terms(&query_tokens, &patch_tokens);
+
+                if matched_terms.is_empty()
+                    && matched_hypothesis_terms.is_empty()
+                    && matched_patch_terms.is_empty()
+                {
+                    return None;
+                }
+
+                let lexical_weighted = matched_terms.iter().fold(0.0, |score, term| {
+                    let df = *document_frequency.get(term).unwrap_or(&1) as f32;
+                    let idf = ((total_docs + 1.0) / (df + 1.0)).ln() + 1.0;
+                    score + idf
+                });
+
+                let lexical = normalize_score(lexical_weighted, query_tokens.len().max(1) as f32);
                 let hypothesis = ratio(matched_hypothesis_terms.len(), query_tokens.len());
                 let patch = ratio(matched_patch_terms.len(), query_tokens.len());
                 let confidence = experience.confidence.clamp(0.0, 1.0);
@@ -655,6 +658,42 @@ mod tests {
             .matched_patch_terms
             .contains(&"login".to_string()));
         assert!(recall.matches[0].score_breakdown.confidence > 0.9);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn recalls_file_only_match_from_changed_files() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+        engine
+            .learn(LearnInput {
+                problem: "Hydration mismatch caused a hidden call to action".into(),
+                testsprite_hypothesis: None,
+                failed_attempts: vec![],
+                successful_decision: "Repair the state boundary".into(),
+                patches: vec![],
+                lesson: "File path context can be the strongest recall signal.".into(),
+                evidence: VerificationEvidence {
+                    files_changed: vec!["app/login/page.tsx".into()],
+                    ..VerificationEvidence::default()
+                },
+                confidence: 0.88,
+            })
+            .unwrap();
+
+        let recall = engine
+            .recall(RecallInput {
+                query: "login page tsx".into(),
+                top_k: 3,
+            })
+            .unwrap();
+
+        assert_eq!(recall.matches.len(), 1);
+        assert!(recall.matches[0]
+            .matched_patch_terms
+            .contains(&"login".to_string()));
+        assert_eq!(recall.matches[0].matched_terms.len(), 0);
         fs::remove_dir_all(root).unwrap();
     }
 
