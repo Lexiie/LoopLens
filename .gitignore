@@ -5,4 +5,6 @@
 /examples/demo-video/
 .DS_Store
 .code/
+.agents/
+skills-lock.json
 PRD.md
