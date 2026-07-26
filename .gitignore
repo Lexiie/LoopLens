@@ -3,6 +3,9 @@
 /examples/demo-app/dist/
 /packages/worker/node_modules/
 /examples/demo-video/
+/video/looplens-demo/
+/.cache/
+/.remotion/
 .DS_Store
 .code/
 .agents/

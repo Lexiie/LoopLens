@@ -10,6 +10,8 @@
 
 LoopLens gives coding agents access to evidence-backed engineering experience across sessions and projects. It captures the useful reasoning behind verified engineering work, stores it as structured local memory, and recalls relevant context before the next agent starts from scratch.
 
+Demo video: https://cdn.jsdelivr.net/gh/Lexiie/LoopLens@main/assets/looplens-demo.mp4
+
 ```text
 Coding Agent
      -> LoopLens recall_context
