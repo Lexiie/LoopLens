@@ -66,6 +66,43 @@ GET https://YOUR_DOMAIN/health
 
 ## Deploy Options
 
+### Cloudflare Workers
+
+Use this when Docker hosts require a credit card. The Worker adapter is in `packages/worker` and exposes the same OKX-facing endpoints:
+
+```text
+GET /health
+GET /project_context
+POST /recall_context
+```
+
+Deploy:
+
+```bash
+cd packages/worker
+npm install
+npx wrangler login
+npm run deploy
+```
+
+After deploy, use the generated Worker URL as the ASP endpoint:
+
+```text
+POST https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/recall_context
+```
+
+Smoke test:
+
+```bash
+curl -i https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/health
+```
+
+```bash
+curl -i https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/recall_context \
+  -H 'content-type: application/json' \
+  -d '{"task":"login CTA disappeared","stack":["javascript","react"],"files":["examples/demo-app/src/App.jsx"]}'
+```
+
 ### Render
 
 The repository includes `render.yaml` and `Dockerfile`.
@@ -107,4 +144,3 @@ curl -i http://127.0.0.1:8787/recall_context \
 - ASP registration uses price `0` for MVP.
 - README points reviewers to the endpoint, request shape, and demo flow.
 - Demo video shows two sessions: first store verified experience, second recall related experience.
-

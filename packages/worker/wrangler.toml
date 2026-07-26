@@ -1,0 +1,4 @@
+name = "looplens-context-recall"
+main = "src/index.js"
+compatibility_date = "2026-07-26"
+

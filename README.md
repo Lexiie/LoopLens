@@ -191,6 +191,7 @@ Deploy helpers are included:
 
 - `Dockerfile` builds the HTTP service and includes `.looplens` sample memory.
 - `render.yaml` defines a Render web service with `/health` as the health check.
+- `packages/worker` provides a Cloudflare Workers adapter for free HTTPS deployment when Docker hosts require payment verification.
 - [docs/okx-submission.md](docs/okx-submission.md) contains the ASP registration fields and endpoint checklist.
 
 ## Storage
