@@ -33,13 +33,13 @@ Use the free direct-response endpoint for the first submission. x402 can be adde
 Deploy `packages/service` and submit this endpoint:
 
 ```text
-POST https://YOUR_DOMAIN/recall_context
+POST https://looplens-context-recall.lendha930.workers.dev/recall_context
 ```
 
 Health check:
 
 ```text
-GET https://YOUR_DOMAIN/health
+GET https://looplens-context-recall.lendha930.workers.dev/health
 ```
 
 ## Request
@@ -85,20 +85,20 @@ npx wrangler login
 npm run deploy
 ```
 
-After deploy, use the generated Worker URL as the ASP endpoint:
+Live Worker URL:
 
 ```text
-POST https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/recall_context
+POST https://looplens-context-recall.lendha930.workers.dev/recall_context
 ```
 
 Smoke test:
 
 ```bash
-curl -i https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/health
+curl -i https://looplens-context-recall.lendha930.workers.dev/health
 ```
 
 ```bash
-curl -i https://looplens-context-recall.YOUR_SUBDOMAIN.workers.dev/recall_context \
+curl -i https://looplens-context-recall.lendha930.workers.dev/recall_context \
   -H 'content-type: application/json' \
   -d '{"task":"login CTA disappeared","stack":["javascript","react"],"files":["examples/demo-app/src/App.jsx"]}'
 ```

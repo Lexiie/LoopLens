@@ -194,6 +194,12 @@ Deploy helpers are included:
 - `packages/worker` provides a Cloudflare Workers adapter for free HTTPS deployment when Docker hosts require payment verification.
 - [docs/okx-submission.md](docs/okx-submission.md) contains the ASP registration fields and endpoint checklist.
 
+Live Worker endpoint:
+
+```text
+POST https://looplens-context-recall.lendha930.workers.dev/recall_context
+```
+
 ## Storage
 
 LoopLens keeps project memory in boring, reviewable files:
