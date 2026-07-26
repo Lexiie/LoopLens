@@ -1,6 +1,7 @@
 /target/
 /examples/demo-app/node_modules/
 /examples/demo-app/dist/
+/packages/worker/node_modules/
 /examples/demo-video/
 .DS_Store
 .code/
