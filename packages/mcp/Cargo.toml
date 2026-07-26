@@ -1,0 +1,16 @@
+[package]
+name = "looplens-mcp"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "looplens-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+looplens-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+

@@ -1,0 +1,16 @@
+[package]
+name = "looplens-service"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "looplens-service"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+looplens-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+

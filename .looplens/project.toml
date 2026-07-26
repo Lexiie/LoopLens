@@ -1,0 +1,7 @@
+name = "LoopLens"
+languages = ["rust", "javascript"]
+frameworks = ["mcp", "react", "vite"]
+runtime = "native"
+package_manager = "cargo"
+test_frameworks = ["cargo test", "vite build"]
+

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: looplens-context-recall
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: LOOPLENS_ROOT
+        value: /app
+

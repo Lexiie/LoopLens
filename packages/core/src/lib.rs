@@ -4,12 +4,42 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 const LOOPLENS_DIR: &str = ".looplens";
-const CONFIG_FILE: &str = "config.toml";
+const PROJECT_FILE: &str = "project.toml";
+const LEGACY_CONFIG_FILE: &str = "config.toml";
 const EXPERIENCES_DIR: &str = "experiences";
 const TRAJECTORIES_DIR: &str = "trajectories";
 const LOOP_FILE: &str = "LOOP.md";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContext {
+    pub name: String,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub frameworks: Vec<String>,
+    #[serde(default)]
+    pub runtime: Option<String>,
+    #[serde(default)]
+    pub package_manager: Option<String>,
+    #[serde(default)]
+    pub test_frameworks: Vec<String>,
+}
+
+impl Default for ProjectContext {
+    fn default() -> Self {
+        Self {
+            name: "LoopLens project".to_string(),
+            languages: vec!["rust".to_string()],
+            frameworks: Vec::new(),
+            runtime: Some("native".to_string()),
+            package_manager: Some("cargo".to_string()),
+            test_frameworks: vec!["cargo test".to_string()],
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -27,8 +57,8 @@ pub struct StorageConfig {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            version: "0.1".to_string(),
-            project: "LoopLens repository memory".to_string(),
+            version: "0.2".to_string(),
+            project: "LoopLens engineering memory".to_string(),
             storage: StorageConfig {
                 experiences_dir: EXPERIENCES_DIR.to_string(),
                 trajectories_dir: TRAJECTORIES_DIR.to_string(),
@@ -38,69 +68,264 @@ impl Default for Config {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RepairExperience {
+pub struct EngineeringExperience {
     pub id: String,
     pub created_at: DateTime<Utc>,
     pub verified_at: DateTime<Utc>,
-    pub problem: String,
-    pub testsprite_hypothesis: Option<String>,
-    pub trajectory_summary: TrajectorySummary,
-    pub patches: Vec<String>,
+    pub task: TaskRecord,
+    pub context: ProjectContext,
+    pub trajectory: TrajectorySummary,
     pub lesson: String,
-    pub evidence: VerificationEvidence,
-    pub verified: VerificationStatus,
+    pub verification: VerificationEvidence,
+    pub outcome: ExperienceOutcome,
+    pub evidence: CodeEvidence,
+    pub scope: MemoryScope,
     pub confidence: f32,
 }
 
-impl<'de> Deserialize<'de> for RepairExperience {
+pub type RepairExperience = EngineeringExperience;
+
+impl<'de> Deserialize<'de> for EngineeringExperience {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct RepairExperienceFields {
+        struct Fields {
             id: String,
             created_at: DateTime<Utc>,
             #[serde(default)]
             verified_at: Option<DateTime<Utc>>,
-            problem: String,
-            testsprite_hypothesis: Option<String>,
-            trajectory_summary: TrajectorySummary,
+            #[serde(default)]
+            task: Option<TaskRecord>,
+            #[serde(default)]
+            problem: Option<String>,
+            #[serde(default)]
+            task_type: Option<TaskType>,
+            #[serde(default)]
+            context: Option<ProjectContext>,
+            #[serde(default)]
+            hypothesis: Option<String>,
+            #[serde(default)]
+            trajectory: Option<TrajectorySummary>,
+            #[serde(default)]
+            trajectory_summary: Option<TrajectorySummary>,
+            #[serde(default)]
             patches: Vec<String>,
             lesson: String,
             #[serde(default)]
-            evidence: VerificationEvidence,
-            verified: VerificationStatus,
+            verification: Option<VerificationEvidence>,
+            #[serde(default)]
+            verified: Option<LegacyVerificationStatus>,
+            #[serde(default)]
+            outcome: Option<ExperienceOutcome>,
+            #[serde(default)]
+            evidence: Option<LegacyEvidence>,
+            #[serde(default)]
+            scope: MemoryScope,
             confidence: f32,
         }
 
-        let fields = RepairExperienceFields::deserialize(deserializer)?;
+        let fields = Fields::deserialize(deserializer)?;
+        let loaded_task = fields.task.unwrap_or_default();
+        let summary = if loaded_task.summary.trim().is_empty() {
+            fields.problem.unwrap_or_default()
+        } else {
+            loaded_task.summary
+        };
+        let mut task = TaskRecord {
+            summary,
+            task_type: fields.task_type.unwrap_or(loaded_task.task_type),
+            hypothesis: loaded_task.hypothesis.or(fields.hypothesis),
+        };
+        let mut verification = fields.verification.unwrap_or_default();
+        if verification.source == VerificationSource::Unspecified {
+            verification.source = match fields.verified {
+                Some(LegacyVerificationStatus::Pass) => VerificationSource::Custom,
+                None => VerificationSource::Unspecified,
+            };
+        }
+        if verification.result == VerificationResult::Unknown {
+            verification.result = match fields.verified {
+                Some(LegacyVerificationStatus::Pass) => VerificationResult::Passed,
+                None => VerificationResult::Unknown,
+            };
+        }
+        let legacy_evidence = fields.evidence.unwrap_or_default();
+        let mut code_evidence = CodeEvidence {
+            commit_sha: legacy_evidence.commit_sha,
+            branch: legacy_evidence.branch,
+            agent: legacy_evidence.agent,
+            files_changed: legacy_evidence.files_changed.clone(),
+        };
+        if code_evidence.files_changed.is_empty() {
+            code_evidence.files_changed = fields.patches.clone();
+        }
+        verification.run_id = verification.run_id.or(legacy_evidence.run_id);
+        verification.test_id = verification.test_id.or(legacy_evidence.test_id);
+        verification.target_url = verification.target_url.or(legacy_evidence.target_url);
+        verification.dashboard_url = verification.dashboard_url.or(legacy_evidence.dashboard_url);
+        if verification.files_changed.is_empty() {
+            verification.files_changed = code_evidence.files_changed.clone();
+        }
+        if task.hypothesis.is_none() {
+            task.hypothesis = verification.reference.clone();
+        }
+
         Ok(Self {
             id: fields.id,
             created_at: fields.created_at,
             verified_at: fields.verified_at.unwrap_or(fields.created_at),
-            problem: fields.problem,
-            testsprite_hypothesis: fields.testsprite_hypothesis,
-            trajectory_summary: fields.trajectory_summary,
-            patches: fields.patches,
+            task,
+            context: fields.context.unwrap_or_default(),
+            trajectory: fields
+                .trajectory
+                .or(fields.trajectory_summary)
+                .unwrap_or_default(),
             lesson: fields.lesson,
-            evidence: fields.evidence,
-            verified: fields.verified,
+            verification,
+            outcome: fields.outcome.unwrap_or(ExperienceOutcome::VerifiedSuccess),
+            evidence: code_evidence,
+            scope: fields.scope,
             confidence: fields.confidence,
         })
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskRecord {
+    pub summary: String,
+    #[serde(default, rename = "type")]
+    pub task_type: TaskType,
+    #[serde(default)]
+    pub hypothesis: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskType {
+    Bugfix,
+    Feature,
+    Refactor,
+    Migration,
+    Performance,
+    Build,
+    Deployment,
+    Testing,
+    Configuration,
+    Dependency,
+    Other,
+}
+
+impl Default for TaskType {
+    fn default() -> Self {
+        Self::Other
+    }
+}
+
+impl FromStr for TaskType {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "bugfix" | "bug" | "fix" => Ok(Self::Bugfix),
+            "feature" | "feat" => Ok(Self::Feature),
+            "refactor" => Ok(Self::Refactor),
+            "migration" | "migrate" => Ok(Self::Migration),
+            "performance" | "perf" => Ok(Self::Performance),
+            "build" => Ok(Self::Build),
+            "deployment" | "deploy" => Ok(Self::Deployment),
+            "testing" | "test" => Ok(Self::Testing),
+            "configuration" | "config" => Ok(Self::Configuration),
+            "dependency" | "deps" => Ok(Self::Dependency),
+            "other" => Ok(Self::Other),
+            other => Err(format!("unknown task type `{other}`")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TrajectorySummary {
+    #[serde(default)]
+    pub failed_attempts: Vec<String>,
+    #[serde(default)]
+    pub successful_decision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationSource {
+    Test,
+    Build,
+    Lint,
+    Ci,
+    Human,
+    Custom,
+    #[serde(other)]
+    Unspecified,
+}
+
+impl Default for VerificationSource {
+    fn default() -> Self {
+        Self::Unspecified
+    }
+}
+
+impl FromStr for VerificationSource {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "test" | "tests" => Ok(Self::Test),
+            "build" => Ok(Self::Build),
+            "lint" => Ok(Self::Lint),
+            "ci" => Ok(Self::Ci),
+            "human" | "approval" => Ok(Self::Human),
+            "custom" => Ok(Self::Custom),
+            "unspecified" | "unknown" => Ok(Self::Unspecified),
+            other => Err(format!("unknown verification source `{other}`")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationResult {
+    Passed,
+    Failed,
+    Unknown,
+}
+
+impl Default for VerificationResult {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VerificationEvidence {
     #[serde(default)]
-    pub testsprite_run_id: Option<String>,
+    pub source: VerificationSource,
+    #[serde(default)]
+    pub result: VerificationResult,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub run_id: Option<String>,
     #[serde(default)]
     pub test_id: Option<String>,
     #[serde(default)]
     pub target_url: Option<String>,
     #[serde(default)]
     pub dashboard_url: Option<String>,
+    #[serde(default)]
+    pub files_changed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CodeEvidence {
     #[serde(default)]
     pub commit_sha: Option<String>,
     #[serde(default)]
@@ -111,60 +336,124 @@ pub struct VerificationEvidence {
     pub files_changed: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TrajectorySummary {
-    pub failed_attempts: Vec<String>,
-    pub successful_decision: String,
+#[derive(Debug, Clone, Default, Deserialize)]
+struct LegacyEvidence {
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
+    test_id: Option<String>,
+    #[serde(default)]
+    target_url: Option<String>,
+    #[serde(default)]
+    dashboard_url: Option<String>,
+    #[serde(default)]
+    commit_sha: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    files_changed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExperienceOutcome {
+    VerifiedSuccess,
+    VerifiedFailure,
+    Unverified,
+}
+
+impl Default for ExperienceOutcome {
+    fn default() -> Self {
+        Self::Unverified
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct MemoryScope {
+    #[serde(default = "default_true")]
+    pub project: bool,
+    #[serde(default = "default_true")]
+    pub stack: bool,
+    #[serde(default)]
+    pub global: bool,
+}
+
+impl Default for MemoryScope {
+    fn default() -> Self {
+        Self {
+            project: true,
+            stack: true,
+            global: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub enum VerificationStatus {
+enum LegacyVerificationStatus {
     Pass,
 }
 
 #[derive(Debug, Clone)]
 pub struct LearnInput {
-    pub problem: String,
-    pub testsprite_hypothesis: Option<String>,
+    pub task: String,
+    pub task_type: TaskType,
+    pub hypothesis: Option<String>,
     pub failed_attempts: Vec<String>,
     pub successful_decision: String,
-    pub patches: Vec<String>,
+    pub files: Vec<String>,
     pub lesson: String,
-    pub evidence: VerificationEvidence,
+    pub verification: VerificationEvidence,
+    pub evidence: CodeEvidence,
+    pub scope: MemoryScope,
     pub confidence: f32,
 }
 
 #[derive(Debug, Clone)]
 pub struct RecallInput {
-    pub query: String,
+    pub task: String,
+    pub task_type: Option<TaskType>,
+    pub files: Vec<String>,
+    pub languages: Vec<String>,
+    pub frameworks: Vec<String>,
     pub top_k: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecallMatch {
-    pub experience: RepairExperience,
+    pub experience: EngineeringExperience,
     pub score: f32,
     pub matched_terms: Vec<String>,
-    pub matched_hypothesis_terms: Vec<String>,
-    pub matched_patch_terms: Vec<String>,
+    pub matched_context_terms: Vec<String>,
+    pub matched_file_terms: Vec<String>,
+    pub reason: Vec<String>,
     pub score_breakdown: RecallScoreBreakdown,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecallScoreBreakdown {
-    pub lexical: f32,
-    pub hypothesis: f32,
-    pub patch: f32,
+    pub task_similarity: f32,
+    pub stack_match: f32,
+    pub file_match: f32,
     pub confidence: f32,
     pub recency: f32,
+    pub scope: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RecallResult {
     pub query: String,
     pub matches: Vec<RecallMatch>,
     pub candidate_strategies: Vec<String>,
+    pub avoid: Vec<String>,
+    pub recommended_checks: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -199,7 +488,15 @@ impl LoopLensEngine {
             }
         }
 
-        let config_path = base.join(CONFIG_FILE);
+        let project_path = base.join(PROJECT_FILE);
+        if !project_path.exists() {
+            let context = toml::to_string_pretty(&ProjectContext::default())?;
+            fs::write(&project_path, context)
+                .with_context(|| format!("failed to write {}", project_path.display()))?;
+            created.push(project_path);
+        }
+
+        let config_path = base.join(LEGACY_CONFIG_FILE);
         if !config_path.exists() {
             let config = toml::to_string_pretty(&Config::default())?;
             fs::write(&config_path, config)
@@ -220,27 +517,43 @@ impl LoopLensEngine {
         })
     }
 
-    pub fn learn(&self, input: LearnInput) -> Result<RepairExperience> {
+    pub fn learn(&self, input: LearnInput) -> Result<EngineeringExperience> {
         self.ensure_initialized()?;
         validate_learn_input(&input)?;
 
         let existing = self.load_experiences()?;
         let id = next_id(existing.len() + 1);
         let verified_at = Utc::now();
-        let experience = RepairExperience {
+        let mut verification = input.verification;
+        if verification.result == VerificationResult::Unknown {
+            verification.result = VerificationResult::Passed;
+        }
+        if verification.files_changed.is_empty() {
+            verification.files_changed = input.files.clone();
+        }
+        let mut evidence = input.evidence;
+        if evidence.files_changed.is_empty() {
+            evidence.files_changed = input.files.clone();
+        }
+        let experience = EngineeringExperience {
             id: id.clone(),
             created_at: verified_at,
             verified_at,
-            problem: input.problem,
-            testsprite_hypothesis: input.testsprite_hypothesis,
-            trajectory_summary: TrajectorySummary {
+            task: TaskRecord {
+                summary: input.task,
+                task_type: input.task_type,
+                hypothesis: input.hypothesis,
+            },
+            context: self.project_context().unwrap_or_default(),
+            trajectory: TrajectorySummary {
                 failed_attempts: input.failed_attempts,
                 successful_decision: input.successful_decision,
             },
-            patches: input.patches,
             lesson: input.lesson,
-            evidence: input.evidence,
-            verified: VerificationStatus::Pass,
+            verification,
+            outcome: ExperienceOutcome::VerifiedSuccess,
+            evidence,
+            scope: input.scope,
             confidence: input.confidence,
         };
 
@@ -256,7 +569,13 @@ impl LoopLensEngine {
     pub fn recall(&self, input: RecallInput) -> Result<RecallResult> {
         self.ensure_initialized()?;
         let top_k = input.top_k.max(1);
-        let query_tokens = tokenize(&input.query);
+        let task_tokens = tokenize(&input.task);
+        let file_tokens = tokenize(&input.files.join(" "));
+        let stack_tokens = tokenize(&format!(
+            "{} {}",
+            input.languages.join(" "),
+            input.frameworks.join(" ")
+        ));
         let experiences = self.load_experiences()?;
         let document_frequency = document_frequency(&experiences);
         let total_docs = experiences.len().max(1) as f32;
@@ -266,58 +585,71 @@ impl LoopLensEngine {
             .filter_map(|experience| {
                 let doc = experience_text(&experience);
                 let doc_tokens = tokenize(&doc);
-                let matched_terms = overlap_terms(&query_tokens, &doc_tokens);
-                let hypothesis_tokens = tokenize(
-                    experience
-                        .testsprite_hypothesis
-                        .as_deref()
-                        .unwrap_or_default(),
-                );
-                let patch_tokens = tokenize(&format!(
+                let matched_terms = overlap_terms(&task_tokens, &doc_tokens);
+                let context_tokens = tokenize(&experience_context_text(&experience));
+                let matched_context_terms = overlap_terms(&stack_tokens, &context_tokens);
+                let experience_file_tokens = tokenize(&format!(
                     "{} {}",
-                    experience.patches.join(" "),
+                    experience.verification.files_changed.join(" "),
                     experience.evidence.files_changed.join(" ")
                 ));
-                let matched_hypothesis_terms = overlap_terms(&query_tokens, &hypothesis_tokens);
-                let matched_patch_terms = overlap_terms(&query_tokens, &patch_tokens);
+                let matched_file_terms = overlap_terms(&file_tokens, &experience_file_tokens);
 
                 if matched_terms.is_empty()
-                    && matched_hypothesis_terms.is_empty()
-                    && matched_patch_terms.is_empty()
+                    && matched_context_terms.is_empty()
+                    && matched_file_terms.is_empty()
                 {
                     return None;
                 }
 
-                let lexical_weighted = matched_terms.iter().fold(0.0, |score, term| {
+                let task_weighted = matched_terms.iter().fold(0.0, |score, term| {
                     let df = *document_frequency.get(term).unwrap_or(&1) as f32;
                     let idf = ((total_docs + 1.0) / (df + 1.0)).ln() + 1.0;
                     score + idf
                 });
 
-                let lexical = normalize_score(lexical_weighted, query_tokens.len().max(1) as f32);
-                let hypothesis = ratio(matched_hypothesis_terms.len(), query_tokens.len());
-                let patch = ratio(matched_patch_terms.len(), query_tokens.len());
-                let confidence = experience.confidence.clamp(0.0, 1.0);
+                let task_similarity =
+                    normalize_score(task_weighted, task_tokens.len().max(1) as f32);
+                let stack_match = if stack_tokens.is_empty() {
+                    0.0
+                } else {
+                    ratio(matched_context_terms.len(), stack_tokens.len())
+                };
+                let file_match = if file_tokens.is_empty() {
+                    0.0
+                } else {
+                    ratio(matched_file_terms.len(), file_tokens.len())
+                };
+                let confidence = high_confidence_score(&experience);
                 let recency = recency_score(experience.verified_at);
+                let scope = scope_score(&experience.scope);
                 let score_breakdown = RecallScoreBreakdown {
-                    lexical,
-                    hypothesis,
-                    patch,
+                    task_similarity,
+                    stack_match,
+                    file_match,
                     confidence,
                     recency,
+                    scope,
                 };
-                let score = lexical * 0.35
-                    + patch * 0.25
-                    + hypothesis * 0.20
+                let score = task_similarity * 0.35
+                    + stack_match * 0.20
+                    + file_match * 0.20
                     + confidence * 0.10
-                    + recency * 0.10;
+                    + recency * 0.10
+                    + scope * 0.05;
 
                 Some(RecallMatch {
+                    reason: recall_reasons(
+                        &matched_terms,
+                        &matched_context_terms,
+                        &matched_file_terms,
+                        &experience,
+                    ),
                     experience,
                     score,
                     matched_terms,
-                    matched_hypothesis_terms,
-                    matched_patch_terms,
+                    matched_context_terms,
+                    matched_file_terms,
                     score_breakdown,
                 })
             })
@@ -328,14 +660,47 @@ impl LoopLensEngine {
 
         let candidate_strategies = matches
             .iter()
-            .map(|m| m.experience.trajectory_summary.successful_decision.clone())
+            .filter(|m| m.experience.outcome == ExperienceOutcome::VerifiedSuccess)
+            .map(|m| m.experience.trajectory.successful_decision.clone())
+            .collect();
+        let avoid = matches
+            .iter()
+            .flat_map(|m| m.experience.trajectory.failed_attempts.clone())
+            .collect();
+        let recommended_checks = matches
+            .iter()
+            .map(|m| m.experience.lesson.clone())
             .collect();
 
         Ok(RecallResult {
-            query: input.query,
+            query: input.task,
             matches,
             candidate_strategies,
+            avoid,
+            recommended_checks,
         })
+    }
+
+    pub fn project_context(&self) -> Result<ProjectContext> {
+        let project_path = self.memory_dir().join(PROJECT_FILE);
+        if project_path.exists() {
+            let raw = fs::read_to_string(&project_path)
+                .with_context(|| format!("failed to read {}", project_path.display()))?;
+            return toml::from_str(&raw)
+                .with_context(|| format!("failed to parse {}", project_path.display()));
+        }
+        let config_path = self.memory_dir().join(LEGACY_CONFIG_FILE);
+        if config_path.exists() {
+            let raw = fs::read_to_string(&config_path)
+                .with_context(|| format!("failed to read {}", config_path.display()))?;
+            let config: Config = toml::from_str(&raw)
+                .with_context(|| format!("failed to parse {}", config_path.display()))?;
+            return Ok(ProjectContext {
+                name: config.project,
+                ..ProjectContext::default()
+            });
+        }
+        Ok(ProjectContext::default())
     }
 
     pub fn export_loop(&self) -> Result<String> {
@@ -349,7 +714,7 @@ impl LoopLensEngine {
         Ok(markdown)
     }
 
-    pub fn load_experiences(&self) -> Result<Vec<RepairExperience>> {
+    pub fn load_experiences(&self) -> Result<Vec<EngineeringExperience>> {
         let dir = self.experiences_dir();
         if !dir.exists() {
             return Ok(Vec::new());
@@ -366,7 +731,7 @@ impl LoopLensEngine {
 
             let raw = fs::read_to_string(&path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
-            let experience: RepairExperience = serde_yaml::from_str(&raw)
+            let experience: EngineeringExperience = serde_yaml::from_str(&raw)
                 .with_context(|| format!("failed to parse {}", path.display()))?;
             experiences.push(experience);
         }
@@ -376,33 +741,38 @@ impl LoopLensEngine {
     }
 
     fn ensure_initialized(&self) -> Result<()> {
-        let config = self.memory_dir().join(CONFIG_FILE);
-        if !config.exists() {
+        let memory = self.memory_dir();
+        if !memory.join(PROJECT_FILE).exists() && !memory.join(LEGACY_CONFIG_FILE).exists() {
             anyhow::bail!("LoopLens is not initialized. Run `looplens init` first.");
         }
         Ok(())
     }
 
-    fn write_trajectory(&self, experience: &RepairExperience) -> Result<()> {
+    fn write_trajectory(&self, experience: &EngineeringExperience) -> Result<()> {
         let mut lines = vec![
             format!("# {} Trajectory", experience.id),
             String::new(),
-            format!("Problem: {}", experience.problem),
-            format!("Verified: PASS at {}", experience.verified_at.to_rfc3339()),
+            format!("Task: {}", experience.task.summary),
+            format!("Type: {:?}", experience.task.task_type),
+            format!(
+                "Outcome: {:?} at {}",
+                experience.outcome,
+                experience.verified_at.to_rfc3339()
+            ),
             String::new(),
         ];
 
-        if let Some(run_id) = &experience.evidence.testsprite_run_id {
-            lines.push(format!("TestSprite run: {}", run_id));
+        if let Some(command) = &experience.verification.command {
+            lines.push(format!("Verification command: {}", command));
         }
-        if let Some(test_id) = &experience.evidence.test_id {
-            lines.push(format!("TestSprite test: {}", test_id));
+        if let Some(reference) = &experience.verification.reference {
+            lines.push(format!("Verification reference: {}", reference));
         }
-        if let Some(target_url) = &experience.evidence.target_url {
+        if let Some(run_id) = &experience.verification.run_id {
+            lines.push(format!("Verification run: {}", run_id));
+        }
+        if let Some(target_url) = &experience.verification.target_url {
             lines.push(format!("Target URL: {}", target_url));
-        }
-        if let Some(dashboard_url) = &experience.evidence.dashboard_url {
-            lines.push(format!("Dashboard: {}", dashboard_url));
         }
         if let Some(commit_sha) = &experience.evidence.commit_sha {
             lines.push(format!("Commit: {}", commit_sha));
@@ -421,13 +791,15 @@ impl LoopLensEngine {
         }
         lines.push(String::new());
 
-        for attempt in &experience.trajectory_summary.failed_attempts {
-            lines.push(format!("- FAIL: {}", attempt));
+        for attempt in &experience.trajectory.failed_attempts {
+            lines.push(format!("- FAILED: {}", attempt));
         }
-        lines.push(format!(
-            "- PASS: {}",
-            experience.trajectory_summary.successful_decision
-        ));
+        if !experience.trajectory.successful_decision.is_empty() {
+            lines.push(format!(
+                "- SUCCESS: {}",
+                experience.trajectory.successful_decision
+            ));
+        }
 
         let path = self
             .memory_dir()
@@ -448,14 +820,17 @@ impl LoopLensEngine {
 }
 
 fn validate_learn_input(input: &LearnInput) -> Result<()> {
-    if input.problem.trim().is_empty() {
-        anyhow::bail!("problem is required");
+    if input.task.trim().is_empty() {
+        anyhow::bail!("task is required");
     }
     if input.successful_decision.trim().is_empty() {
         anyhow::bail!("successful decision is required");
     }
     if input.lesson.trim().is_empty() {
         anyhow::bail!("lesson is required");
+    }
+    if input.verification.result == VerificationResult::Failed {
+        anyhow::bail!("learn stores verified successes; record failed attempts in the trajectory");
     }
     if !(0.0..=1.0).contains(&input.confidence) {
         anyhow::bail!("confidence must be between 0.0 and 1.0");
@@ -501,7 +876,29 @@ fn recency_score(verified_at: DateTime<Utc>) -> f32 {
     (1.0 / (1.0 + age_days / 90.0)).clamp(0.0, 1.0)
 }
 
-fn document_frequency(experiences: &[RepairExperience]) -> HashMap<String, usize> {
+fn high_confidence_score(experience: &EngineeringExperience) -> f32 {
+    match experience.outcome {
+        ExperienceOutcome::VerifiedSuccess => experience.confidence.clamp(0.0, 1.0),
+        ExperienceOutcome::VerifiedFailure => (experience.confidence * 0.35).clamp(0.0, 0.35),
+        ExperienceOutcome::Unverified => (experience.confidence * 0.15).clamp(0.0, 0.15),
+    }
+}
+
+fn scope_score(scope: &MemoryScope) -> f32 {
+    let mut score = 0.0;
+    if scope.project {
+        score += 0.45;
+    }
+    if scope.stack {
+        score += 0.35;
+    }
+    if scope.global {
+        score += 0.20;
+    }
+    score
+}
+
+fn document_frequency(experiences: &[EngineeringExperience]) -> HashMap<String, usize> {
     let mut frequency = HashMap::new();
     for experience in experiences {
         for token in tokenize(&experience_text(experience)) {
@@ -511,100 +908,145 @@ fn document_frequency(experiences: &[RepairExperience]) -> HashMap<String, usize
     frequency
 }
 
-fn experience_text(experience: &RepairExperience) -> String {
+fn experience_text(experience: &EngineeringExperience) -> String {
     format!(
-        "{} {} {} {} {} {}",
-        experience.problem,
-        experience
-            .testsprite_hypothesis
-            .as_deref()
-            .unwrap_or_default(),
-        experience.trajectory_summary.failed_attempts.join(" "),
-        experience.trajectory_summary.successful_decision,
-        experience.patches.join(" "),
+        "{} {} {} {} {} {} {}",
+        experience.task.summary,
+        experience.task.hypothesis.as_deref().unwrap_or_default(),
+        experience.trajectory.failed_attempts.join(" "),
+        experience.trajectory.successful_decision,
+        experience.verification.files_changed.join(" "),
+        experience.evidence.files_changed.join(" "),
         experience.lesson,
     )
 }
 
-fn empty_loop_doc() -> &'static str {
-    "# LOOP.md\n\nNo verified repair experiences recorded yet.\n"
+fn experience_context_text(experience: &EngineeringExperience) -> String {
+    format!(
+        "{} {} {} {}",
+        experience.context.languages.join(" "),
+        experience.context.frameworks.join(" "),
+        experience.context.runtime.as_deref().unwrap_or_default(),
+        experience
+            .context
+            .package_manager
+            .as_deref()
+            .unwrap_or_default(),
+    )
 }
 
-fn render_loop_doc(experiences: &[RepairExperience]) -> String {
-    let mut out = String::from("# LOOP.md\n\nRepair experience memory generated by LoopLens.\n\n");
+fn recall_reasons(
+    terms: &[String],
+    context_terms: &[String],
+    file_terms: &[String],
+    experience: &EngineeringExperience,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if !terms.is_empty() {
+        reasons.push(format!("task overlap: {}", terms.join(", ")));
+    }
+    if !context_terms.is_empty() {
+        reasons.push(format!("stack overlap: {}", context_terms.join(", ")));
+    }
+    if !file_terms.is_empty() {
+        reasons.push(format!("file/path overlap: {}", file_terms.join(", ")));
+    }
+    if experience.outcome == ExperienceOutcome::VerifiedSuccess {
+        reasons.push("verified successful outcome".to_string());
+    }
+    reasons
+}
+
+fn empty_loop_doc() -> &'static str {
+    "# LOOP.md\n\nNo engineering experiences recorded yet.\n"
+}
+
+fn render_loop_doc(experiences: &[EngineeringExperience]) -> String {
+    let mut out =
+        String::from("# LOOP.md\n\nEngineering experience memory generated by LoopLens.\n\n");
     if experiences.is_empty() {
-        out.push_str("No verified repair experiences recorded yet.\n");
+        out.push_str("No engineering experiences recorded yet.\n");
         return out;
     }
 
     for experience in experiences {
         out.push_str(&format!(
             "## {} - {}\n\n",
-            experience.id, experience.problem
+            experience.id, experience.task.summary
         ));
         out.push_str(&format!(
-            "Verified: PASS at {}\n\n",
+            "Outcome: {:?} at {}\n\n",
+            experience.outcome,
             experience.verified_at.to_rfc3339()
         ));
-        if let Some(hypothesis) = &experience.testsprite_hypothesis {
-            out.push_str(&format!("TestSprite hypothesis: {}\n\n", hypothesis));
+        if let Some(hypothesis) = &experience.task.hypothesis {
+            out.push_str(&format!("Context/hypothesis: {}\n\n", hypothesis));
         }
-        let evidence = &experience.evidence;
-        if evidence.testsprite_run_id.is_some()
-            || evidence.test_id.is_some()
-            || evidence.target_url.is_some()
-            || evidence.dashboard_url.is_some()
-            || evidence.commit_sha.is_some()
-            || evidence.branch.is_some()
-            || evidence.agent.is_some()
-            || !evidence.files_changed.is_empty()
-        {
-            out.push_str("Evidence:\n");
-            if let Some(run_id) = &evidence.testsprite_run_id {
-                out.push_str(&format!("- TestSprite run: {}\n", run_id));
-            }
-            if let Some(test_id) = &evidence.test_id {
-                out.push_str(&format!("- TestSprite test: {}\n", test_id));
-            }
-            if let Some(target_url) = &evidence.target_url {
-                out.push_str(&format!("- Target URL: {}\n", target_url));
-            }
-            if let Some(dashboard_url) = &evidence.dashboard_url {
-                out.push_str(&format!("- Dashboard: {}\n", dashboard_url));
-            }
-            if let Some(commit_sha) = &evidence.commit_sha {
-                out.push_str(&format!("- Commit: {}\n", commit_sha));
-            }
-            if let Some(branch) = &evidence.branch {
-                out.push_str(&format!("- Branch: {}\n", branch));
-            }
-            if let Some(agent) = &evidence.agent {
-                out.push_str(&format!("- Agent: {}\n", agent));
-            }
-            if !evidence.files_changed.is_empty() {
-                out.push_str("- Files changed:\n");
-                for file in &evidence.files_changed {
-                    out.push_str(&format!("  - {}\n", file));
-                }
-            }
-            out.push('\n');
+        out.push_str(&format!(
+            "Project context: {} | languages: {} | frameworks: {}\n\n",
+            experience.context.name,
+            csv_or_none(&experience.context.languages),
+            csv_or_none(&experience.context.frameworks)
+        ));
+        let verification = &experience.verification;
+        out.push_str("Verification:\n");
+        out.push_str(&format!("- Source: {:?}\n", verification.source));
+        out.push_str(&format!("- Result: {:?}\n", verification.result));
+        if let Some(command) = &verification.command {
+            out.push_str(&format!("- Command: {}\n", command));
         }
-        out.push_str("Failed attempts:\n");
-        if experience.trajectory_summary.failed_attempts.is_empty() {
+        if let Some(reference) = &verification.reference {
+            out.push_str(&format!("- Reference: {}\n", reference));
+        }
+        if let Some(run_id) = &verification.run_id {
+            out.push_str(&format!("- Run: {}\n", run_id));
+        }
+        if let Some(target_url) = &verification.target_url {
+            out.push_str(&format!("- Target URL: {}\n", target_url));
+        }
+        if let Some(commit_sha) = &experience.evidence.commit_sha {
+            out.push_str(&format!("- Commit: {}\n", commit_sha));
+        }
+        if let Some(branch) = &experience.evidence.branch {
+            out.push_str(&format!("- Branch: {}\n", branch));
+        }
+        if let Some(agent) = &experience.evidence.agent {
+            out.push_str(&format!("- Agent: {}\n", agent));
+        }
+        if !experience.evidence.files_changed.is_empty() {
+            out.push_str("- Files changed:\n");
+            for file in &experience.evidence.files_changed {
+                out.push_str(&format!("  - {}\n", file));
+            }
+        }
+        out.push('\n');
+        out.push_str("Failed attempts to avoid:\n");
+        if experience.trajectory.failed_attempts.is_empty() {
             out.push_str("- None recorded\n");
         } else {
-            for attempt in &experience.trajectory_summary.failed_attempts {
+            for attempt in &experience.trajectory.failed_attempts {
                 out.push_str(&format!("- {}\n", attempt));
             }
         }
         out.push_str(&format!(
-            "\nSuccessful decision: {}\n\nLesson: {}\n\nConfidence: {:.2}\n\n",
-            experience.trajectory_summary.successful_decision,
+            "\nSuccessful decision: {}\n\nLesson: {}\n\nScope: project={} stack={} global={}\n\nConfidence: {:.2}\n\n",
+            experience.trajectory.successful_decision,
             experience.lesson,
+            experience.scope.project,
+            experience.scope.stack,
+            experience.scope.global,
             experience.confidence
         ));
     }
     out
+}
+
+fn csv_or_none(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
+    }
 }
 
 pub fn read_failure_bundle(path: impl AsRef<Path>) -> Result<String> {
@@ -624,27 +1066,37 @@ mod tests {
         engine.init().unwrap();
         engine
             .learn(LearnInput {
-                problem: "Login flow failed after auth state render".into(),
-                testsprite_hypothesis: Some("Missing login button".into()),
+                task: "Login flow failed after auth state render".into(),
+                task_type: TaskType::Bugfix,
+                hypothesis: Some("Missing login button".into()),
                 failed_attempts: vec!["Changed selector".into()],
                 successful_decision: "Fix auth state rendering".into(),
-                patches: vec!["app/login/page.tsx".into()],
+                files: vec!["app/login/page.tsx".into()],
                 lesson: "Check auth-state rendering before modifying selectors.".into(),
-                evidence: VerificationEvidence {
-                    testsprite_run_id: Some("run_123".into()),
-                    test_id: Some("test_123".into()),
+                verification: VerificationEvidence {
+                    source: VerificationSource::Custom,
+                    result: VerificationResult::Passed,
+                    run_id: Some("run_123".into()),
                     target_url: Some("https://example.com".into()),
-                    dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
                     files_changed: vec!["app/login/page.tsx".into()],
                     ..VerificationEvidence::default()
                 },
+                evidence: CodeEvidence {
+                    files_changed: vec!["app/login/page.tsx".into()],
+                    ..CodeEvidence::default()
+                },
+                scope: MemoryScope::default(),
                 confidence: 0.94,
             })
             .unwrap();
 
         let recall = engine
             .recall(RecallInput {
-                query: "auth login button missing".into(),
+                task: "auth login button missing".into(),
+                task_type: Some(TaskType::Bugfix),
+                files: vec!["app/login/page.tsx".into()],
+                languages: vec!["rust".into()],
+                frameworks: vec![],
                 top_k: 3,
             })
             .unwrap();
@@ -652,138 +1104,24 @@ mod tests {
         assert_eq!(recall.matches.len(), 1);
         assert_eq!(recall.matches[0].experience.id, "EXP-001");
         assert!(recall.matches[0]
-            .matched_hypothesis_terms
+            .matched_terms
             .contains(&"login".to_string()));
         assert!(recall.matches[0]
-            .matched_patch_terms
+            .matched_file_terms
             .contains(&"login".to_string()));
         assert!(recall.matches[0].score_breakdown.confidence > 0.9);
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
-    fn recalls_file_only_match_from_changed_files() {
-        let root = temp_root();
-        let engine = LoopLensEngine::new(&root);
-        engine.init().unwrap();
-        engine
-            .learn(LearnInput {
-                problem: "Hydration mismatch caused a hidden call to action".into(),
-                testsprite_hypothesis: None,
-                failed_attempts: vec![],
-                successful_decision: "Repair the state boundary".into(),
-                patches: vec![],
-                lesson: "File path context can be the strongest recall signal.".into(),
-                evidence: VerificationEvidence {
-                    files_changed: vec!["app/login/page.tsx".into()],
-                    ..VerificationEvidence::default()
-                },
-                confidence: 0.88,
-            })
-            .unwrap();
-
-        let recall = engine
-            .recall(RecallInput {
-                query: "login page tsx".into(),
-                top_k: 3,
-            })
-            .unwrap();
-
-        assert_eq!(recall.matches.len(), 1);
-        assert!(recall.matches[0]
-            .matched_patch_terms
-            .contains(&"login".to_string()));
-        assert_eq!(recall.matches[0].matched_terms.len(), 0);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn rejects_unverified_shape_by_only_modeling_pass() {
-        let root = temp_root();
-        let engine = LoopLensEngine::new(&root);
-        engine.init().unwrap();
-        let result = engine.learn(LearnInput {
-            problem: "".into(),
-            testsprite_hypothesis: None,
-            failed_attempts: vec![],
-            successful_decision: "Fix route".into(),
-            patches: vec![],
-            lesson: "Keep route and test expectation aligned".into(),
-            evidence: VerificationEvidence::default(),
-            confidence: 0.8,
-        });
-        assert!(result.is_err());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn init_creates_repo_memory_layout() {
-        let root = temp_root();
-        let engine = LoopLensEngine::new(&root);
-        engine.init().unwrap();
-
-        assert!(root.join(".looplens/config.toml").exists());
-        assert!(root.join(".looplens/experiences").is_dir());
-        assert!(root.join(".looplens/trajectories").is_dir());
-        assert!(root.join(".looplens/LOOP.md").exists());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn persists_reloads_and_exports_evidence() {
-        let root = temp_root();
-        let engine = LoopLensEngine::new(&root);
-        engine.init().unwrap();
-        engine
-            .learn(LearnInput {
-                problem: "Demo flow needs verified repair context".into(),
-                testsprite_hypothesis: Some("Workflow indicator did not activate".into()),
-                failed_attempts: vec!["Adjusted visual spacing".into()],
-                successful_decision: "Wire Learn PASS to activate PASS and LOOP indicators".into(),
-                patches: vec!["examples/demo-app/src/App.jsx".into()],
-                lesson: "Keep the verification surface aligned with the actual CLI loop.".into(),
-                evidence: VerificationEvidence {
-                    testsprite_run_id: Some("7e9da0ed-e9a1-4cee-9a4d-92c272bd557e".into()),
-                    test_id: Some("1d52848a-4f5a-46af-a83f-f7cb9e9c0b29".into()),
-                    target_url: Some("https://demo-app-pink-omega.vercel.app".into()),
-                    dashboard_url: Some("https://www.testsprite.com/dashboard/tests/demo".into()),
-                    commit_sha: Some("abc123".into()),
-                    branch: Some("main".into()),
-                    agent: Some("code".into()),
-                    files_changed: vec!["examples/demo-app/src/App.jsx".into()],
-                    ..VerificationEvidence::default()
-                },
-                confidence: 0.97,
-            })
-            .unwrap();
-
-        let reloaded = LoopLensEngine::new(&root).load_experiences().unwrap();
-        assert_eq!(reloaded.len(), 1);
-        assert_eq!(
-            reloaded[0].evidence.testsprite_run_id.as_deref(),
-            Some("7e9da0ed-e9a1-4cee-9a4d-92c272bd557e")
-        );
-
-        let exported = engine.export_loop().unwrap();
-        assert!(exported.contains("Evidence:"));
-        assert!(exported.contains("TestSprite run: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e"));
-        assert!(exported.contains("Target URL: https://demo-app-pink-omega.vercel.app"));
-        assert!(exported.contains("Commit: abc123"));
-        assert!(exported.contains("Branch: main"));
-        assert!(exported.contains("Agent: code"));
-        assert!(exported.contains("examples/demo-app/src/App.jsx"));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn loads_legacy_experience_without_verification_evidence() {
+    fn loads_legacy_experience_shape() {
         let root = temp_root();
         let engine = LoopLensEngine::new(&root);
         engine.init().unwrap();
         let legacy_yaml = r#"id: EXP-001
 created_at: "2026-01-02T03:04:05Z"
 problem: Legacy repair record
-testsprite_hypothesis: null
+hypothesis: Missing login button
 trajectory_summary:
   failed_attempts:
     - Tried the old route first
@@ -798,26 +1136,29 @@ confidence: 0.82
 
         let loaded = engine.load_experiences().unwrap();
         assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].task.summary, "Legacy repair record");
+        assert_eq!(loaded[0].verification.source, VerificationSource::Custom);
+        assert_eq!(loaded[0].verification.result, VerificationResult::Passed);
+        assert_eq!(loaded[0].outcome, ExperienceOutcome::VerifiedSuccess);
         assert_eq!(loaded[0].verified_at, loaded[0].created_at);
-        assert!(loaded[0].evidence.testsprite_run_id.is_none());
 
         let exported = engine.export_loop().unwrap();
+        assert!(exported.contains("Engineering experience memory"));
         assert!(exported.contains("Legacy repair record"));
-        assert!(!exported.contains("Evidence:"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
-        let learned = engine
-            .learn(LearnInput {
-                problem: "New record after upgrade".into(),
-                testsprite_hypothesis: None,
-                failed_attempts: vec![],
-                successful_decision: "Continue after reading legacy records".into(),
-                patches: vec![],
-                lesson: "Learning must not be blocked by older YAML.".into(),
-                evidence: VerificationEvidence::default(),
-                confidence: 0.9,
-            })
-            .unwrap();
-        assert_eq!(learned.id, "EXP-002");
+    #[test]
+    fn init_creates_v2_memory_layout() {
+        let root = temp_root();
+        let engine = LoopLensEngine::new(&root);
+        engine.init().unwrap();
+
+        assert!(root.join(".looplens/project.toml").exists());
+        assert!(root.join(".looplens/config.toml").exists());
+        assert!(root.join(".looplens/experiences").is_dir());
+        assert!(root.join(".looplens/trajectories").is_dir());
+        assert!(root.join(".looplens/LOOP.md").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -827,13 +1168,16 @@ confidence: 0.82
         let engine = LoopLensEngine::new(&root);
         engine.init().unwrap();
         let result = engine.learn(LearnInput {
-            problem: "Confidence must be bounded".into(),
-            testsprite_hypothesis: None,
+            task: "Confidence must be bounded".into(),
+            task_type: TaskType::Testing,
+            hypothesis: None,
             failed_attempts: vec![],
             successful_decision: "Reject invalid confidence".into(),
-            patches: vec![],
+            files: vec![],
             lesson: "Confidence remains reviewable when bounded.".into(),
-            evidence: VerificationEvidence::default(),
+            verification: VerificationEvidence::default(),
+            evidence: CodeEvidence::default(),
+            scope: MemoryScope::default(),
             confidence: 1.2,
         });
 

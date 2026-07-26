@@ -1,14 +1,15 @@
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
 use looplens_core::{
-    read_failure_bundle, LearnInput, LoopLensEngine, RecallInput, VerificationEvidence,
+    read_failure_bundle, CodeEvidence, LearnInput, LoopLensEngine, MemoryScope, RecallInput,
+    TaskType, VerificationEvidence, VerificationResult, VerificationSource,
 };
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
 #[derive(Debug, Parser)]
 #[command(name = "looplens")]
-#[command(about = "Repository-scoped repair experience memory for AI coding agents")]
+#[command(about = "Persistent engineering memory for AI coding agents")]
 struct Cli {
     #[arg(long, global = true, default_value = ".")]
     root: PathBuf,
@@ -21,27 +22,48 @@ struct Cli {
 enum Command {
     /// Create .looplens storage in the current repository.
     Init,
-    /// Retrieve similar verified repairs for a failure bundle or problem text.
+    /// Retrieve relevant engineering experience for a task context.
     Recall {
         #[arg(long, conflicts_with = "failure_bundle")]
-        problem: Option<String>,
+        task: Option<String>,
 
-        #[arg(long = "failure-bundle", conflicts_with = "problem")]
+        #[arg(long = "problem", conflicts_with = "failure_bundle", hide = true)]
+        legacy_problem: Option<String>,
+
+        #[arg(long = "failure-bundle", conflicts_with_all = ["task", "legacy_problem"])]
         failure_bundle: Option<PathBuf>,
+
+        #[arg(long = "file")]
+        files: Vec<String>,
+
+        #[arg(long = "language")]
+        languages: Vec<String>,
+
+        #[arg(long = "framework")]
+        frameworks: Vec<String>,
 
         #[arg(long, default_value_t = 3)]
         top_k: usize,
     },
-    /// Store a verified PASS repair experience.
+    /// Store a verified engineering experience.
     Learn {
-        #[arg(long = "verified-pass", action = ArgAction::SetTrue, required = true)]
-        verified_pass: bool,
+        #[arg(long = "verified", action = ArgAction::SetTrue)]
+        verified: bool,
+
+        #[arg(long = "verified-pass", action = ArgAction::SetTrue, hide = true)]
+        legacy_verified_pass: bool,
 
         #[arg(long)]
-        problem: String,
+        task: Option<String>,
 
-        #[arg(long = "testsprite-hypothesis")]
-        testsprite_hypothesis: Option<String>,
+        #[arg(long = "problem", hide = true)]
+        legacy_problem: Option<String>,
+
+        #[arg(long = "type", default_value = "other")]
+        task_type: TaskType,
+
+        #[arg(long)]
+        hypothesis: Option<String>,
 
         #[arg(long = "failed-attempt")]
         failed_attempts: Vec<String>,
@@ -49,14 +71,26 @@ enum Command {
         #[arg(long = "successful-decision")]
         successful_decision: String,
 
-        #[arg(long = "patch")]
-        patches: Vec<String>,
+        #[arg(long = "file")]
+        files: Vec<String>,
+
+        #[arg(long = "patch", hide = true)]
+        legacy_patches: Vec<String>,
 
         #[arg(long)]
         lesson: String,
 
-        #[arg(long = "testsprite-run-id")]
-        testsprite_run_id: Option<String>,
+        #[arg(long = "verification-source", default_value = "custom")]
+        verification_source: VerificationSource,
+
+        #[arg(long = "verification-command")]
+        verification_command: Option<String>,
+
+        #[arg(long = "verification-reference")]
+        verification_reference: Option<String>,
+
+        #[arg(long = "run-id")]
+        run_id: Option<String>,
 
         #[arg(long = "test-id")]
         test_id: Option<String>,
@@ -79,11 +113,16 @@ enum Command {
         #[arg(long = "file-changed")]
         files_changed: Vec<String>,
 
+        #[arg(long = "global-scope", action = ArgAction::SetTrue)]
+        global_scope: bool,
+
         #[arg(long, default_value_t = 0.85)]
         confidence: f32,
     },
     /// Regenerate .looplens/LOOP.md from verified experiences.
     ExportLoop,
+    /// Print project stack metadata exposed to agents.
+    ProjectContext,
 }
 
 fn main() -> Result<()> {
@@ -100,27 +139,45 @@ fn main() -> Result<()> {
             }
         }
         Command::Recall {
-            problem,
+            task,
+            legacy_problem,
             failure_bundle,
+            files,
+            languages,
+            frameworks,
             top_k,
         } => {
-            let query = match (problem, failure_bundle) {
-                (Some(problem), None) => problem,
+            let query = match (task.or(legacy_problem), failure_bundle) {
+                (Some(task), None) => task,
                 (None, Some(path)) => read_failure_bundle(path)?,
-                _ => anyhow::bail!("provide --problem or --failure-bundle"),
+                _ => anyhow::bail!("provide --task or --failure-bundle"),
             };
-            let result = engine.recall(RecallInput { query, top_k })?;
+            let result = engine.recall(RecallInput {
+                task: query,
+                task_type: None,
+                files,
+                languages,
+                frameworks,
+                top_k,
+            })?;
             print_recall(result);
         }
         Command::Learn {
-            verified_pass,
-            problem,
-            testsprite_hypothesis,
+            verified,
+            legacy_verified_pass,
+            task,
+            legacy_problem,
+            task_type,
+            hypothesis,
             failed_attempts,
             successful_decision,
-            patches,
+            files,
+            legacy_patches,
             lesson,
-            testsprite_run_id,
+            verification_source,
+            verification_command,
+            verification_reference,
+            run_id,
             test_id,
             target_url,
             dashboard_url,
@@ -128,43 +185,81 @@ fn main() -> Result<()> {
             branch,
             agent,
             files_changed,
+            global_scope,
             confidence,
         } => {
-            if !verified_pass {
-                anyhow::bail!("learn requires --verified-pass after a successful TestSprite run");
+            if !verified && !legacy_verified_pass {
+                anyhow::bail!("learn requires --verified after successful verification");
             }
+            let task = task
+                .or(legacy_problem)
+                .ok_or_else(|| anyhow::anyhow!("--task is required"))?;
             let inferred_commit = commit_sha.or_else(|| git_value(&root, &["rev-parse", "HEAD"]));
             let inferred_branch =
                 branch.or_else(|| git_value(&root, &["branch", "--show-current"]));
+            let files = if files.is_empty() {
+                legacy_patches
+            } else {
+                files
+            };
             let changed_files = if files_changed.is_empty() {
-                patches.clone()
+                files.clone()
             } else {
                 files_changed
             };
             let experience = engine.learn(LearnInput {
-                problem,
-                testsprite_hypothesis,
+                task,
+                task_type,
+                hypothesis,
                 failed_attempts,
                 successful_decision,
-                patches,
+                files: files.clone(),
                 lesson,
-                evidence: VerificationEvidence {
-                    testsprite_run_id,
+                verification: VerificationEvidence {
+                    source: verification_source,
+                    result: VerificationResult::Passed,
+                    command: verification_command,
+                    reference: verification_reference,
+                    run_id,
                     test_id,
                     target_url,
                     dashboard_url,
+                    files_changed: changed_files.clone(),
+                },
+                evidence: CodeEvidence {
                     commit_sha: inferred_commit,
                     branch: inferred_branch,
                     agent,
                     files_changed: changed_files,
                 },
+                scope: MemoryScope {
+                    project: true,
+                    stack: true,
+                    global: global_scope,
+                },
                 confidence,
             })?;
-            println!("Stored verified repair experience {}", experience.id);
+            println!("Stored verified engineering experience {}", experience.id);
         }
         Command::ExportLoop => {
             let markdown = engine.export_loop()?;
             println!("{}", markdown);
+        }
+        Command::ProjectContext => {
+            let context = engine.project_context()?;
+            println!("Project: {}", context.name);
+            println!("Languages: {}", display_list(&context.languages));
+            println!("Frameworks: {}", display_list(&context.frameworks));
+            if let Some(runtime) = context.runtime {
+                println!("Runtime: {}", runtime);
+            }
+            if let Some(package_manager) = context.package_manager {
+                println!("Package manager: {}", package_manager);
+            }
+            println!(
+                "Test frameworks: {}",
+                display_list(&context.test_frameworks)
+            );
         }
     }
 
@@ -186,49 +281,50 @@ fn git_value(root: &PathBuf, args: &[&str]) -> Option<String> {
 }
 
 fn print_recall(result: looplens_core::RecallResult) {
-    println!("# LoopLens Repair Context");
+    println!("# LoopLens Engineering Context");
     println!();
     println!("Query: {}", result.query.trim());
     println!();
 
     if result.matches.is_empty() {
-        println!("No similar verified repairs found yet.");
+        println!("No relevant engineering experience found yet.");
         return;
     }
 
-    println!("## Similar Repairs");
+    println!("## Relevant Experience");
     for item in &result.matches {
         let experience = &item.experience;
         println!(
             "- {} score {:.3}: {}",
-            experience.id, item.score, experience.problem
+            experience.id, item.score, experience.task.summary
         );
         if !item.matched_terms.is_empty() {
             println!("  matched terms: {}", item.matched_terms.join(", "));
         }
-        if !item.matched_hypothesis_terms.is_empty() {
+        if !item.matched_context_terms.is_empty() {
+            println!("  stack overlap: {}", item.matched_context_terms.join(", "));
+        }
+        if !item.matched_file_terms.is_empty() {
             println!(
-                "  hypothesis overlap: {}",
-                item.matched_hypothesis_terms.join(", ")
+                "  file/path overlap: {}",
+                item.matched_file_terms.join(", ")
             );
         }
-        if !item.matched_patch_terms.is_empty() {
-            println!(
-                "  patch/file overlap: {}",
-                item.matched_patch_terms.join(", ")
-            );
+        if !item.reason.is_empty() {
+            println!("  why: {}", item.reason.join("; "));
         }
         println!(
-            "  score breakdown: lexical {:.2}, patch {:.2}, hypothesis {:.2}, confidence {:.2}, recency {:.2}",
-            item.score_breakdown.lexical,
-            item.score_breakdown.patch,
-            item.score_breakdown.hypothesis,
+            "  score breakdown: task {:.2}, stack {:.2}, file {:.2}, confidence {:.2}, recency {:.2}, scope {:.2}",
+            item.score_breakdown.task_similarity,
+            item.score_breakdown.stack_match,
+            item.score_breakdown.file_match,
             item.score_breakdown.confidence,
-            item.score_breakdown.recency
+            item.score_breakdown.recency,
+            item.score_breakdown.scope
         );
         println!(
             "  previous decision: {}",
-            experience.trajectory_summary.successful_decision
+            experience.trajectory.successful_decision
         );
         println!("  lesson learned: {}", experience.lesson);
     }
@@ -237,5 +333,29 @@ fn print_recall(result: looplens_core::RecallResult) {
     println!("## Candidate Strategies");
     for strategy in result.candidate_strategies {
         println!("- {}", strategy);
+    }
+
+    if !result.avoid.is_empty() {
+        println!();
+        println!("## Avoid");
+        for attempt in result.avoid {
+            println!("- {}", attempt);
+        }
+    }
+
+    if !result.recommended_checks.is_empty() {
+        println!();
+        println!("## Recommended Checks");
+        for check in result.recommended_checks {
+            println!("- {}", check);
+        }
+    }
+}
+
+fn display_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join(", ")
     }
 }

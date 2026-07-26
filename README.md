@@ -1,60 +1,85 @@
 # LoopLens
 
-![Hackathon](https://img.shields.io/badge/TestSprite-Hackathon%20S3-19C379?style=for-the-badge)
-![Rust](https://img.shields.io/badge/Rust-CLI-b7410e?style=for-the-badge&logo=rust&logoColor=white)
-![Local First](https://img.shields.io/badge/Local--first-Repository%20Memory-2d6a4f?style=for-the-badge)
-![Verified](https://img.shields.io/badge/TestSprite-PASS-19C379?style=for-the-badge)
+![OKX.AI](https://img.shields.io/badge/OKX.AI-Genesis-111111?style=for-the-badge)
+![Rust](https://img.shields.io/badge/Rust-Core-b7410e?style=for-the-badge&logo=rust&logoColor=white)
+![MCP](https://img.shields.io/badge/Agent--native-MCP-0c6f5b?style=for-the-badge)
+![Memory](https://img.shields.io/badge/Persistent-Engineering%20Memory-28524c?style=for-the-badge)
 [![LoopLens CI](https://github.com/Lexiie/LoopLens/actions/workflows/ci.yml/badge.svg)](https://github.com/Lexiie/LoopLens/actions/workflows/ci.yml)
 
-**Verified Repair Experience Engine for AI Coding Agents.**
+**Persistent Engineering Memory for AI Coding Agents.**
 
-LoopLens is a local-first CLI that turns TestSprite-verified repairs into reusable, repository-specific repair experience. TestSprite tells the agent **what broke** and proves whether the fix passed. LoopLens preserves **the repair trajectory, decision, and evidence that got this repository back to PASS**.
+LoopLens gives coding agents access to evidence-backed engineering experience across sessions and projects. It captures the useful reasoning behind verified engineering work, stores it as structured local memory, and recalls relevant context before the next agent starts from scratch.
 
 ```text
-TestSprite failure bundle
-        -> looplens recall
-        -> agent repair
-        -> TestSprite PASS
-        -> looplens learn
-        -> reusable LOOP.md memory
+Coding Agent
+     -> LoopLens recall_context
+     -> Relevant Engineering Experience
+     -> Agent Works
+     -> Verification
+     -> LoopLens store_experience
+     -> Persistent Engineering Memory
 ```
 
-## Why LoopLens
+LoopLens is not a coding agent, CI system, or test runner. It is a memory service consumed by coding agents through MCP/A2MCP, HTTP, or the CLI.
 
-AI coding agents are good at debugging, but most repair loops are stateless. A failure appears, the agent reasons from scratch, patches the code, and then forgets the path that worked.
+## Why
 
-LoopLens turns verified repairs into repair experience:
+AI coding agents can inspect a repository and solve tasks, but the engineering experience from a session often disappears when the session ends. The next agent can repeat failed approaches, rediscover repository-specific behavior, or miss a previous architectural decision.
 
-- **Decision history**: what the agent tried and what finally worked.
-- **Verified knowledge only**: experiences are stored only after FAIL -> patch -> PASS.
-- **Evidence-backed learning**: TestSprite run IDs, target URLs, Git commits, branches, agents, and changed files can travel with the lesson.
-- **AI-friendly recall**: future failures get relevant lessons instead of the whole history.
-- **Git-native storage**: YAML and Markdown files that can be reviewed, diffed, committed, and rolled back.
+LoopLens stores the reusable part:
 
-That makes LoopLens different from generic "memory": it does not save everything an agent saw. It saves the repair decisions that were proven correct.
+- **What task was solved**: bugfix, feature, refactor, migration, build, testing, configuration, and more.
+- **What failed**: attempts future agents should avoid.
+- **What worked**: the verified decision and lesson.
+- **Why it is relevant**: task overlap, stack compatibility, file/path overlap, confidence, recency, and scope.
+- **What verified it**: tests, build, lint, CI, human approval, browser/API verification, or a custom verifier.
 
-## Hackathon Proof
+## OKX / A2MCP Capability
 
-- **Live demo**: https://demo-app-pink-omega.vercel.app
-- **TestSprite status**: PASS
-- **Run ID**: `7e9da0ed-e9a1-4cee-9a4d-92c272bd557e`
-- **Latest rerun**: `9eb5fd97-b3f0-4da6-9f30-52deb51c5247`, 28/28 steps passed
-- **Test ID**: `1d52848a-4f5a-46af-a83f-f7cb9e9c0b29`
-- **TestSprite dashboard**: https://www.testsprite.com/dashboard/tests/82a9909d-e588-4719-a9ba-53b957d12eb1/test/1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
+The first OKX-facing capability is **Engineering Context Recall**.
 
-The demo app is a public surface for verification. The actual product is the CLI in `packages/cli`, powered by the core engine in `packages/core`.
+Request:
 
-## Product Boundary
+```json
+{
+  "task": "Refactor authentication middleware",
+  "stack": ["typescript", "nextjs"],
+  "files": ["src/auth.ts"]
+}
+```
 
-| TestSprite | LoopLens |
-| --- | --- |
-| Verification layer | Repair experience layer |
-| Failure bundle | Decision history |
-| Browser/API testing | Repository repair memory |
-| Answers "what failed?" | Answers "how did we fix this before?" |
-| Produces PASS/FAIL evidence | Stores verified repair lessons |
+Response:
 
-LoopLens does not replace TestSprite, and it is not a feature clone of TestSprite. TestSprite is the verification layer that creates evidence. LoopLens is the repair experience layer that converts that evidence into reusable agent knowledge for this repository.
+```json
+{
+  "relevant_experience": [],
+  "avoid": [],
+  "recommended_checks": [],
+  "confidence": 0.0
+}
+```
+
+Value proposition:
+
+> Before an AI coding agent starts from scratch, ask LoopLens what previous engineering experience is relevant.
+
+## Architecture
+
+```text
+packages/core      Engineering memory model, storage, retrieval, ranking
+packages/cli       Developer CLI over the core engine
+packages/mcp       Agent-native JSON-RPC/stdio adapter
+packages/service   Minimal HTTP service adapter for ASP-style calls
+examples/demo-app  OKX-oriented interactive demo surface
+.looplens          Local project memory and sample experiences
+```
+
+One core supports two deployment modes:
+
+```text
+Local coding-agent use:      Claude / Codex -> MCP -> LoopLens Local Server -> .looplens/
+OKX service use:             OKX.AI -> HTTPS -> LoopLens Service -> LoopLens Core -> Store
+```
 
 ## Install
 
@@ -62,7 +87,7 @@ LoopLens does not replace TestSprite, and it is not a feature clone of TestSprit
 cargo install --path packages/cli
 ```
 
-Or run directly from the workspace:
+Or run from the workspace:
 
 ```bash
 cargo run -q -p looplens -- --help
@@ -76,56 +101,105 @@ Initialize repository memory:
 looplens init
 ```
 
-Recall similar verified repairs from a TestSprite failure bundle:
+Recall relevant engineering experience:
 
 ```bash
-looplens recall --failure-bundle .testsprite/failure-bundle.md
+looplens recall \
+  --task "Refactor login redirect" \
+  --file src/auth.ts \
+  --language typescript \
+  --framework nextjs
 ```
 
-Try the included sample repository memory:
-
-```bash
-cargo run -q -p looplens -- recall --problem "auth login button missing"
-```
-
-Recall is explainable. Results include matched terms, hypothesis overlap, patch/file overlap, and a score breakdown across lexical, patch, hypothesis, confidence, and recency signals.
-
-Store a new repair experience only after the final verification is PASS:
+Store a verified engineering experience:
 
 ```bash
 looplens learn \
-  --verified-pass \
-  --problem "Login flow failed" \
-  --testsprite-hypothesis "Missing login button" \
-  --failed-attempt "Changed selector" \
-  --successful-decision "Fix auth state rendering" \
-  --patch app/login/page.tsx \
-  --lesson "Check auth-state rendering before modifying selectors." \
-  --testsprite-run-id "7e9da0ed-e9a1-4cee-9a4d-92c272bd557e" \
-  --test-id "1d52848a-4f5a-46af-a83f-f7cb9e9c0b29" \
-  --target-url "https://demo-app-pink-omega.vercel.app" \
-  --agent "code" \
-  --file-changed "app/login/page.tsx" \
+  --verified \
+  --task "Login redirect refactor" \
+  --type refactor \
+  --hypothesis "Redirect behavior depends on session initialization" \
+  --failed-attempt "Changed route matcher before checking session state" \
+  --successful-decision "Initialize session before redirect evaluation" \
+  --file src/auth/session.ts \
+  --lesson "Check session initialization before modifying redirect rules." \
+  --verification-source test \
+  --verification-command "npm run test:e2e" \
+  --agent code \
   --confidence 0.94
 ```
 
-Export the repository memory for agents and reviewers:
+Inspect project context exposed to agents:
+
+```bash
+looplens project-context
+```
+
+Export agent-readable memory:
 
 ```bash
 looplens export-loop
 ```
 
-## Repository Memory
+Legacy v1 flags such as `--problem`, `--patch`, and `--verified-pass` remain accepted for migration, but the v2 vocabulary is task and verification oriented.
 
-This repository intentionally commits three sample verified repairs in `.looplens/` as demo repository memory, so the recall workflow works immediately after cloning. It is not accidental generated state.
+## MCP Adapter
 
-There are two loop artifacts in this submission: root `LOOP.md` is the hackathon-facing agent memory narrative, while `.looplens/LOOP.md` is the generated memory file that LoopLens would carry inside any repository using the CLI.
+Run the stdio adapter:
 
-`looplens init` creates a local, repo-scoped memory store:
+```bash
+cargo run -q -p looplens-mcp -- .
+```
+
+Supported JSON-RPC methods:
+
+- `get_project_context`
+- `recall_context`
+- `record_attempt`
+- `store_experience`
+
+Example call:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"recall_context","params":{"task":"login CTA disappeared","files":["examples/demo-app/src/App.jsx"],"languages":["javascript"],"frameworks":["react"]}}
+```
+
+## HTTP Service
+
+Run the service adapter:
+
+```bash
+PORT=8787 cargo run -q -p looplens-service
+```
+
+Endpoints:
+
+- `GET /health`
+- `GET /project_context`
+- `POST /recall_context`
+- `POST /store_experience`
+
+Example:
+
+```bash
+curl -s http://127.0.0.1:8787/recall_context \
+  -H 'content-type: application/json' \
+  -d '{"task":"login CTA disappeared","stack":["javascript","react"],"files":["examples/demo-app/src/App.jsx"]}'
+```
+
+Deploy helpers are included:
+
+- `Dockerfile` builds the HTTP service and includes `.looplens` sample memory.
+- `render.yaml` defines a Render web service with `/health` as the health check.
+- [docs/okx-submission.md](docs/okx-submission.md) contains the ASP registration fields and endpoint checklist.
+
+## Storage
+
+LoopLens keeps project memory in boring, reviewable files:
 
 ```text
 .looplens/
-  config.toml
+  project.toml
   experiences/
     exp-001.yaml
   trajectories/
@@ -133,50 +207,25 @@ There are two loop artifacts in this submission: root `LOOP.md` is the hackathon
   LOOP.md
 ```
 
-Experience files are intentionally boring: readable YAML, stable Markdown, no cloud account, no backend, no dashboard.
+`RepairExperience` from v1 has been generalized to `EngineeringExperience`. Existing v1 YAML is loaded and migrated in memory, including old verifier evidence.
+
+## Verification
+
+Generic verification evidence replaces verifier-specific evidence:
 
 ```yaml
-id: EXP-001
-verified_at: "2026-07-04T17:25:45Z"
-problem: Login flow failed
-testsprite_hypothesis: Missing login button
-trajectory_summary:
-  failed_attempts:
-    - Added data-testid
-    - Updated selector
-  successful_decision: Fix auth state rendering
-patches:
-  - app/login/page.tsx
-lesson: Check auth-state rendering before modifying selectors.
-evidence:
-  testsprite_run_id: 7e9da0ed-e9a1-4cee-9a4d-92c272bd557e
-  test_id: 1d52848a-4f5a-46af-a83f-f7cb9e9c0b29
-  target_url: https://demo-app-pink-omega.vercel.app
-  commit_sha: 7545ad24c4684fb408122e770846a445edd8f8a8
-  branch: main
-  agent: code
-  files_changed:
-    - examples/demo-app/src/App.jsx
-verified: PASS
-confidence: 0.94
+verification:
+  source: test
+  result: passed
+  command: npm run test:e2e
+  reference: optional
 ```
 
-## Architecture
-
-```text
-packages/core      Repair Experience Engine
-packages/cli       CLI adapter over the core engine
-examples/demo-app  Public hackathon demo surface
-.testsprite        TestSprite plan and run artifact
-```
-
-The core engine owns storage, retrieval, ranking, and LOOP export. The CLI is deliberately thin so the same engine can later power an MCP adapter.
-
-The web demo is an interactive verification surface for judges and TestSprite. It is not the product UI; LoopLens is the CLI and repository memory engine.
+Built-in sources include `test`, `build`, `lint`, `ci`, `human`, and `custom`. Legacy verifier sources are still readable for migration. Only `verified_success` experiences are treated as high-confidence reusable strategies; failed attempts are still useful as approaches to avoid.
 
 ## Demo App
 
-Run the public demo locally:
+Run the OKX-oriented demo locally:
 
 ```bash
 cd examples/demo-app
@@ -190,57 +239,9 @@ Build it:
 npm run build
 ```
 
-## Demo Video
+## Current Limitations
 
-[![Watch the LoopLens demo video](assets/looplens-demo-poster.png)](https://cdn.jsdelivr.net/gh/Lexiie/LoopLens@main/assets/looplens-demo.mp4)
-
-**Watch:** [LoopLens demo video](https://cdn.jsdelivr.net/gh/Lexiie/LoopLens@main/assets/looplens-demo.mp4)
-
-## Verification
-
-Commands already run for this submission:
-
-```bash
-cargo fmt --all -- --check
-cargo test --workspace
-npm --prefix examples/demo-app run build
-testsprite test create --plan-from .testsprite/looplens-demo.plan.json --run --wait
-```
-
-The TestSprite plan lives at `.testsprite/looplens-demo.plan.json`, and the captured run output lives at `.testsprite/looplens-demo-run.json`.
-The latest rerun result lives at `.testsprite/looplens-demo-rerun-final-wait-2.json`.
-
-## CI/CD
-
-GitHub Actions verifies every push and pull request with:
-
-- `cargo fmt --all -- --check`
-- `cargo test --workspace`
-- `npm --prefix examples/demo-app ci`
-- `npm --prefix examples/demo-app run build`
-
-There is also a manual `TestSprite Verification` workflow that can run the public demo test with `TESTSPRITE_API_KEY` configured as a repository secret.
-
-## Known Limitations
-
-- Deduplication is not implemented yet; repeated `learn` calls can create similar experiences.
-- Trajectory storage is currently a summary, not a full repair graph.
-- Retrieval is local and explainable, but does not use embeddings yet.
-- The MCP adapter is roadmap, not part of this MVP.
-- Memory compaction/garbage collection is planned for long-running repositories.
-
-## Roadmap
-
-- v0: Verified Repair Memory.
-- v1: Explainable Trajectory Learning.
-- v2: MCP adapter for native agent access.
-- v3: Cross-repository repair memory.
-- v4: Organization repair knowledge base.
-- v5: Multi-agent shared repair graph.
-
-Near-term engineering work:
-
-- MCP adapter for native agent access.
-- Repair trajectory compaction for long-running repositories.
-- Stronger local retrieval with embeddings.
-- Cross-repository memory with provenance and confidence scoring.
+- Retrieval is local and explainable, but does not use embeddings.
+- `record_attempt` is exposed on the MCP surface, but durable attempt logs are compacted into `store_experience` for this MVP.
+- The HTTP service is intentionally minimal and does not include production auth, accounts, or multi-tenant storage yet.
+- Shared cross-project memory is a roadmap item; project memory remains authoritative.
